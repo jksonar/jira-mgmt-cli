@@ -11,6 +11,28 @@ management, built for CI/CD pipelines.
 > `jira-cli release ...`, `jira-cli artifact ...`, `jira-cli notify ...`, and
 > `jira-cli config check`/`test`/`field-configurations`.
 
+## Table of Contents
+
+- [Requirements](#requirements)
+- [Install](#install)
+- [Configure](#configure)
+- [Usage at a Glance](#usage-at-a-glance)
+- [Patch Release Automation](#patch-release-automation)
+- [CI/CD Integration](#cicd-integration)
+- [Additional Release Lookup/Maintenance Commands](#additional-release-lookupmaintenance-commands)
+- [Issue Creation and Deletion](#issue-creation-and-deletion)
+- [Notifications](#notifications)
+- [Field Configurations](#field-configurations)
+- [End-to-End Example: Release → Build → Notify](#end-to-end-example-release--build--notify)
+- [Project Layout](#project-layout)
+- [Testing](#testing)
+- [Exit Codes](#exit-codes)
+
+## Requirements
+
+- Python 3.11+
+- A Jira Cloud site and an [API token](https://id.atlassian.com/manage-profile/security/api-tokens)
+
 ## Install
 
 ```bash
@@ -50,43 +72,93 @@ Status   : Connected
 `jira-cli config check` runs the same connectivity check and instead prints
 the display name/email Jira resolves the token to.
 
-## Usage
+## Usage at a Glance
+
+Every command follows the same shape: `jira-cli <group> <action> [args] [flags]`.
+Run `jira-cli --help`, or `jira-cli <group> --help`, or
+`jira-cli <group> <action> --help` at any time to see the full option list
+for that command.
+
+### Project
 
 ```bash
-jira-cli config check
-jira-cli config test
-
 jira-cli project list
 jira-cli project get PROJ
+```
 
+### Issues
+
+```bash
 jira-cli issue get PROJ-123
-jira-cli issue search --jql "project = PROJ AND status = 'In Progress'"
+jira-cli issue search --jql "project = PROJ AND status = 'In Progress'" --max-results 20
 jira-cli issue comment PROJ-123 --message "Deployment completed"
 jira-cli issue update PROJ-123 --summary "Updated application deployment"
 jira-cli issue assign PROJ-123 --user <account-id>
 jira-cli issue transition PROJ-123 --status Done
+```
 
+`issue update` requires at least one of `--summary`/`--description`; see
+[Issue Creation and Deletion](#issue-creation-and-deletion) for `issue create`
+and `issue delete`.
+
+### Releases
+
+```bash
 jira-cli release list --project PROJ
 jira-cli release get 10001
 jira-cli release create --project PROJ --name v1.3.0 --release-date 2026-09-01
+jira-cli release create --project PROJ --version v1.3.0 \
+  --start-date 2026-08-20 --release-date 2026-09-01 --description "Q3 release"
 jira-cli release update 10001 --release-date 2026-09-10
+jira-cli release update 10001 --released
 jira-cli release publish 10001
 jira-cli release archive 10001
 jira-cli release delete 10001
+```
 
+`--name` and `--version` are interchangeable aliases for the same option on
+`release create`. `release update` requires at least one field to change.
+See [Patch Release Automation](#patch-release-automation) and
+[Additional Release Lookup/Maintenance Commands](#additional-release-lookupmaintenance-commands)
+for the automated `next`/`finalize` workflow and the raw lookup toolset.
+
+### Artifacts
+
+```bash
 jira-cli artifact upload PROJ-123 --file ./build/application.zip
 jira-cli artifact upload PROJ-123 \
   --file ./build/application.zip --file ./build/checksum.txt \
   --build-number 1542 --commit 8f3d91a --environment UAT
+
+# Skip the auto-generated upload comment on the issue
+jira-cli artifact upload PROJ-123 --file ./build/application.zip --no-comment
+
 jira-cli artifact metadata 10099
 ```
 
-All commands support `--output table|json`, `--quiet`, and `--verbose`.
-Commands that modify data also support `--dry-run`.
+`--file` may be repeated to upload multiple attachments in one call; at least
+one is required.
 
-`--no-verify-ssl` (top-level flag, before the command) disables TLS
-certificate verification for development-only Jira instances and prints a
-warning when used — never use it against production.
+### Output, logging, and safety flags
+
+Most commands accept:
+
+| Flag | Effect |
+|------|--------|
+| `--output/-o table\|json\|version\|branch-name` | Render as a human-readable table (default), raw JSON, just the version string, or just the branch name (the last two are primarily meaningful for `release next`/`release current`). |
+| `--quiet/-q` | Print only the resulting ID — handy for scripting. |
+| `--verbose/-v` | Enable debug-level logging. |
+| `--dry-run` | Preview the change without calling Jira — only on commands that modify data. |
+
+There are two exceptions: `notify teams` only supports `--dry-run` (it never
+talks to Jira, so `--output`/`--quiet`/`--verbose` don't apply), and
+`release clean-name` is a pure offline string utility with none of the four
+flags.
+
+`--no-verify-ssl` (top-level flag, placed *before* the command, e.g.
+`jira-cli --no-verify-ssl config test`) disables TLS certificate verification
+for development-only Jira instances and prints a warning when used — never
+use it against production.
 
 ## Patch Release Automation
 
@@ -286,6 +358,36 @@ jira-cli config field-configurations
 Lists Jira field configurations (`GET /rest/api/3/fieldconfiguration`).
 Requires Jira global admin permission.
 
+## End-to-End Example: Release → Build → Notify
+
+A typical CI/CD pipeline run strings the commands above together: create the
+next release, build and tag artifacts against it, then notify the team.
+
+```bash
+# 1. Calculate/create the next patch release for this project, capture just
+#    the version string for use as the build number.
+APP_VERSION=$(jira-cli release next --project PROJ --output version)
+echo "Building version $APP_VERSION"
+
+# 2. Build your artifact (project-specific — not part of this CLI)
+#    ... your build tool here, producing ./build/application.zip ...
+
+# 3. Attach the build output to the ticket tracking the release
+jira-cli artifact upload PROJ-123 --file ./build/application.zip \
+  --build-number "$APP_VERSION" --commit "$(git rev-parse --short HEAD)" \
+  --environment UAT
+
+# 4. Move the release through its lifecycle once deployed
+jira-cli release finalize --project PROJ --to-label "on UAT" --strip-token UAT
+
+# 5. Let the team know
+jira-cli notify teams --message "Deployed $APP_VERSION to UAT" --webhook "$TEAMS_WEBHOOK"
+```
+
+Because every step exits non-zero on failure (see [Exit Codes](#exit-codes)),
+add `set -e` (or the CI-native equivalent) so the pipeline stops immediately
+if, say, the release couldn't be created or the artifact upload failed.
+
 ## Project Layout
 
 ```text
@@ -295,7 +397,7 @@ src/jira_cli/
 ├── client/           # JiraClient (httpx wrapper), auth, exception hierarchy
 ├── services/         # Business logic, one service per resource
 ├── models/           # Frozen dataclasses mapping Jira API JSON <-> CLI output
-├── versioning/       # CalVer (YY.MM.DD) parsing/validation/calculation
+├── versioning/       # MAJOR.MINOR.PATCH parsing/validation/increment (patch.py)
 ├── config/           # Settings loaded from environment/.env
 └── utils/            # Logging (with secret masking), output rendering, CLI validators
 ```
@@ -308,9 +410,9 @@ pytest
 ```
 
 Tests mock `JiraClient`/`httpx` directly, so the suite runs without a live
-Jira instance. Coverage includes CalVer calculation (including leap years and
-year rollover), the `--date` override rules, duplicate-release detection,
-issue assign/transition, artifact validation/upload, and JiraClient's
+Jira instance. Coverage includes `MAJOR.MINOR.PATCH` increment/bootstrap
+calculation, duplicate-release detection, issue assign/transition, artifact
+validation/upload, Teams notification, and JiraClient's
 HTTP-status-to-exit-code mapping.
 
 ## Exit Codes
@@ -323,7 +425,7 @@ HTTP-status-to-exit-code mapping.
 | 3    | Authentication failure                           |
 | 4    | Authorization/permission failure                 |
 | 5    | Resource not found                               |
-| 6    | Validation failure / invalid CalVer version / invalid release date |
+| 6    | Validation failure / invalid `MAJOR.MINOR.PATCH` version / invalid release date |
 | 7    | Network/API failure                              |
 | 8    | File/artifact failure                            |
 | 9    | Release creation failure                         |

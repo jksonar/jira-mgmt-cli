@@ -199,8 +199,8 @@ sit after `25.10.2` in the project's release list, and renames `25.10.2` to
 `25.10.2 - in Deployment`. If a release for `25.10.3` already exists (e.g. a
 concurrent pipeline run created it first), the existing release is returned
 instead of creating a duplicate. If no matching release exists yet at all
-(first-ever run for a project), the version is bootstrapped as `YY.MM.1`
-from today's date.
+(first-ever run for a project), the version is bootstrapped as `YY.M.1`
+from today's date (e.g. `26.8.1` in August 2026).
 
 `--output json` returns:
 

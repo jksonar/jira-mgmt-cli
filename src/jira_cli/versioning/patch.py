@@ -54,4 +54,4 @@ def extract_version_prefix(name: str) -> str | None:
 
 def bootstrap_patch_version(today: date) -> str:
     """No prior release exists yet: seed `YY.MM.1` from today's date."""
-    return f"{today.year % 100:02d}.{today.month:02d}.1"
+    return format_patch_version(today.year % 100, today.month, 1)

@@ -179,7 +179,7 @@ def test_plan_next_release_bootstraps_when_no_current_release() -> None:
     plan = service.plan_next_release("PROJ", create=True)
 
     today = date.today()
-    expected = f"{today.year % 100:02d}.{today.month:02d}.1"
+    expected = f"{today.year % 100}.{today.month}.1"
     assert plan.previous_release is None
     assert plan.next_release == expected
     assert plan.created is True

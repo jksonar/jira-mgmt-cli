@@ -63,5 +63,5 @@ def test_extract_version_prefix(name: str, expected: str | None) -> None:
 
 
 def test_bootstrap_patch_version_seeds_yy_mm_1() -> None:
-    assert bootstrap_patch_version(date(2026, 8, 17)) == "26.08.1"
-    assert bootstrap_patch_version(date(2025, 1, 5)) == "25.01.1"
+    assert bootstrap_patch_version(date(2026, 8, 17)) == "26.8.1"
+    assert bootstrap_patch_version(date(2025, 1, 5)) == "25.1.1"

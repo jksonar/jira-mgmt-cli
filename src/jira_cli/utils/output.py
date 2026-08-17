@@ -8,6 +8,7 @@ from enum import Enum
 import typer
 
 from jira_cli.client.exceptions import JiraCliError
+from jira_cli.models.artifact import Attachment
 from jira_cli.models.issue import Issue
 from jira_cli.models.project import Project
 from jira_cli.models.release import NextReleasePlan, Release
@@ -105,6 +106,8 @@ def render_next_release(plan: NextReleasePlan, fmt: OutputFormat, quiet: bool) -
     typer.echo("")
     typer.echo(f"Project          : {plan.project}")
     typer.echo(f"Current Release  : {plan.previous_release}")
+    if plan.requested_date is not None:
+        typer.echo(f"Requested Date   : {plan.requested_date}")
     typer.echo(f"Next Release     : {plan.next_release}")
     typer.echo(f"Status           : {status}")
     if plan.release_id:
@@ -125,6 +128,7 @@ def render_next_release_dry_run(plan: NextReleasePlan, fmt: OutputFormat, quiet:
     typer.echo("DRY RUN")
     typer.echo("")
     typer.echo(f"Current Release : {plan.previous_release}")
+    typer.echo(f"Release Date    : {plan.release_date}")
     typer.echo(f"Next Release    : {plan.next_release}")
     typer.echo("")
     typer.echo("No changes will be made to Jira.")
@@ -217,6 +221,70 @@ def render_issue_updated(issue_key: str, fmt: OutputFormat, quiet: bool) -> None
         typer.echo(json.dumps({"issue": issue_key, "updated": True}, indent=2))
         return
     typer.echo(f"Issue {issue_key} updated.")
+
+
+def render_issue_assigned(issue_key: str, user: str, fmt: OutputFormat, quiet: bool) -> None:
+    if quiet:
+        typer.echo(issue_key)
+        return
+    if fmt is OutputFormat.JSON:
+        typer.echo(json.dumps({"issue": issue_key, "assignee": user}, indent=2))
+        return
+    typer.echo(f"Issue {issue_key} assigned to {user}.")
+
+
+def render_issue_transitioned(issue_key: str, status: str, fmt: OutputFormat, quiet: bool) -> None:
+    if quiet:
+        typer.echo(issue_key)
+        return
+    if fmt is OutputFormat.JSON:
+        typer.echo(json.dumps({"issue": issue_key, "status": status}, indent=2))
+        return
+    typer.echo(f"Issue {issue_key} transitioned to {status}.")
+
+
+def render_artifact_upload(
+    issue_key: str, attachments: list[Attachment], fmt: OutputFormat, quiet: bool
+) -> None:
+    if quiet:
+        for attachment in attachments:
+            typer.echo(attachment.id)
+        return
+
+    if fmt is OutputFormat.JSON:
+        typer.echo(
+            json.dumps(
+                {"issue": issue_key, "attachments": [a.to_dict() for a in attachments]},
+                indent=2,
+            )
+        )
+        return
+
+    typer.echo("Artifact uploaded successfully.")
+    typer.echo("")
+    for attachment in attachments:
+        typer.echo(f"Name: {attachment.filename}")
+        typer.echo(f"Attachment ID: {attachment.id}")
+        typer.echo(f"Size: {attachment.size} bytes")
+        typer.echo("")
+
+
+def render_attachment_metadata(attachment: Attachment, fmt: OutputFormat, quiet: bool) -> None:
+    if quiet:
+        typer.echo(attachment.id)
+        return
+
+    if fmt is OutputFormat.JSON:
+        typer.echo(json.dumps(attachment.to_dict(), indent=2))
+        return
+
+    typer.echo(f"Attachment ID: {attachment.id}")
+    typer.echo(f"Name: {attachment.filename}")
+    typer.echo(f"Size: {attachment.size} bytes")
+    if attachment.mime_type:
+        typer.echo(f"MIME Type: {attachment.mime_type}")
+    if attachment.created:
+        typer.echo(f"Created: {attachment.created}")
 
 
 def render_dry_run(operation: str, fields: dict[str, str]) -> None:

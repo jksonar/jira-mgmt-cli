@@ -65,3 +65,32 @@ class IssueService:
             raise ValidationError("No fields provided to update.")
 
         self._client.put(f"/issue/{issue_key}", json={"fields": fields})
+
+    def assign_issue(self, issue_key: str, user: str) -> None:
+        """Assign `issue_key` to `user` (a Jira Cloud accountId)."""
+        self._client.put(f"/issue/{issue_key}/assignee", json={"accountId": user})
+
+    def transition_issue(self, issue_key: str, status: str) -> None:
+        """Move `issue_key` through its workflow to the transition matching `status`."""
+        data = self._client.get(f"/issue/{issue_key}/transitions")
+        transitions = (data or {}).get("transitions", [])
+
+        match = next(
+            (
+                t
+                for t in transitions
+                if t.get("name", "").lower() == status.lower()
+                or (t.get("to") or {}).get("name", "").lower() == status.lower()
+            ),
+            None,
+        )
+        if match is None:
+            available = ", ".join(t.get("name", "") for t in transitions) or "none"
+            raise ValidationError(
+                f"No transition to status '{status}' is available for issue {issue_key}.",
+                details=f"Available transitions: {available}",
+            )
+
+        self._client.post(
+            f"/issue/{issue_key}/transitions", json={"transition": {"id": match["id"]}}
+        )

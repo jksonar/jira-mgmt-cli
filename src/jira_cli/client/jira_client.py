@@ -35,12 +35,14 @@ def _extract_error_message(response: httpx.Response) -> str:
 
 
 class JiraClient:
-    def __init__(self, settings: Settings, timeout: float = 30.0) -> None:
+    def __init__(
+        self, settings: Settings, timeout: float = 30.0, verify_ssl: bool = True
+    ) -> None:
         self._http = httpx.Client(
             base_url=settings.jira_url,
             auth=build_basic_auth(settings),
             timeout=timeout,
-            verify=True,
+            verify=verify_ssl,
             headers={"Accept": "application/json"},
         )
 
@@ -91,9 +93,16 @@ class JiraClient:
         self,
         path: str,
         json: dict[str, Any] | None = None,
+        files: Any = None,
         headers: dict[str, str] | None = None,
     ) -> Any:
-        return self._request("POST", path, json=json, headers=headers)
+        kwargs: dict[str, Any] = {"headers": headers}
+        if files is not None:
+            # Multipart upload: `json` and `files` are mutually exclusive in httpx.
+            kwargs["files"] = files
+        else:
+            kwargs["json"] = json
+        return self._request("POST", path, **kwargs)
 
     def put(self, path: str, json: dict[str, Any] | None = None) -> Any:
         return self._request("PUT", path, json=json)

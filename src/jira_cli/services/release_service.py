@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 from jira_cli.client.exceptions import JiraCliError, ReleaseCreationError, ValidationError
 from jira_cli.client.jira_client import JiraClient
 from jira_cli.models.release import NextReleasePlan, Release
-from jira_cli.versioning.calver import is_valid_calver, latest_calver, next_calver
+from jira_cli.versioning.calver import (
+    format_calver,
+    is_valid_calver,
+    latest_calver,
+    next_release_date,
+)
 
 _NO_VALID_RELEASE_DETAILS = "Expected format:\nYY.MM.DD\n\nExample:\n26.08.31"
 
@@ -88,8 +95,14 @@ class ReleaseService:
         """Return the newest release whose name is a valid CalVer (YY.MM.DD) version, or None."""
         return self._latest_calver_release(self.list_releases(project))
 
-    def plan_next_release(self, project: str, create: bool) -> NextReleasePlan:
+    def plan_next_release(
+        self, project: str, create: bool, date_override: str | None = None
+    ) -> NextReleasePlan:
         """Calculate the next CalVer release from the project's current one.
+
+        If `date_override` (YYYY-MM-DD) is supplied, it is used verbatim to build the
+        `YY.MM.DD` version instead of calculating the last day of next month - an explicit
+        date always takes priority and is never replaced by the automatic calculation.
 
         If `create` is True and the release does not already exist, it is created in Jira.
         Raises ValidationError if no valid CalVer release exists yet to calculate from.
@@ -104,7 +117,13 @@ class ReleaseService:
                 "No valid CalVer release found.", details=_NO_VALID_RELEASE_DETAILS
             )
 
-        next_version = next_calver(current.name)
+        if date_override is not None:
+            release_date_obj = date.fromisoformat(date_override)
+        else:
+            release_date_obj = next_release_date(current.name)
+        next_version = format_calver(release_date_obj)
+        release_date_iso = release_date_obj.isoformat()
+
         existing = next(
             (r for r in self.list_releases(project) if r.name == next_version), None
         )
@@ -114,9 +133,11 @@ class ReleaseService:
                 project=project,
                 previous_release=current.name,
                 next_release=next_version,
+                release_date=release_date_iso,
                 release_id=existing.id,
                 created=False,
                 existing=True,
+                requested_date=date_override,
             )
 
         if not create:
@@ -124,13 +145,17 @@ class ReleaseService:
                 project=project,
                 previous_release=current.name,
                 next_release=next_version,
+                release_date=release_date_iso,
                 release_id=None,
                 created=False,
                 existing=False,
+                requested_date=date_override,
             )
 
         try:
-            created_release = self.create_release(project=project, name=next_version)
+            created_release = self.create_release(
+                project=project, name=next_version, release_date=release_date_iso
+            )
         except JiraCliError:
             raise
         except Exception as exc:  # noqa: BLE001 - wrap unexpected failures as exit code 8
@@ -140,9 +165,11 @@ class ReleaseService:
             project=project,
             previous_release=current.name,
             next_release=next_version,
+            release_date=release_date_iso,
             release_id=created_release.id,
             created=True,
             existing=False,
+            requested_date=date_override,
         )
 
     @staticmethod

@@ -1,12 +1,13 @@
 # Jira CLI
 
-A command-line tool for automating Jira project, issue, and release management, built for CI/CD pipelines.
+A command-line tool for automating Jira project, issue, release, and artifact
+management, built for CI/CD pipelines.
 
-> **Scope note**: this project currently implements project info, issue
-> management, release management (`jira-cli project ...`,
-> `jira-cli issue ...`, `jira-cli release ...`, and `jira-cli config check`/`test`),
-> and CalVer release automation (`jira-cli release current`/`next`).
-> Artifact commands from the full PRD are planned for a later milestone.
+> **Scope note**: this project implements project info, issue management
+> (including assign/transition), release management, CalVer release
+> automation with optional custom release dates, and artifact upload —
+> `jira-cli project ...`, `jira-cli issue ...`, `jira-cli release ...`,
+> `jira-cli artifact ...`, and `jira-cli config check`/`test`.
 
 ## Install
 
@@ -43,6 +44,8 @@ jira-cli issue get PROJ-123
 jira-cli issue search --jql "project = PROJ AND status = 'In Progress'"
 jira-cli issue comment PROJ-123 --message "Deployment completed"
 jira-cli issue update PROJ-123 --summary "Updated application deployment"
+jira-cli issue assign PROJ-123 --user <account-id>
+jira-cli issue transition PROJ-123 --status Done
 
 jira-cli release list --project PROJ
 jira-cli release get 10001
@@ -51,10 +54,20 @@ jira-cli release update 10001 --release-date 2026-09-10
 jira-cli release publish 10001
 jira-cli release archive 10001
 jira-cli release delete 10001
+
+jira-cli artifact upload PROJ-123 --file ./build/application.zip
+jira-cli artifact upload PROJ-123 \
+  --file ./build/application.zip --file ./build/checksum.txt \
+  --build-number 1542 --commit 8f3d91a --environment UAT
+jira-cli artifact metadata 10099
 ```
 
 All commands support `--output table|json`, `--quiet`, and `--verbose`.
 Commands that modify data also support `--dry-run`.
+
+`--no-verify-ssl` (top-level flag, before the command) disables TLS
+certificate verification for development-only Jira instances and prints a
+warning when used — never use it against production.
 
 ## CalVer Release Automation
 
@@ -74,6 +87,9 @@ jira-cli release next --project PROJ --output version
 
 # Preview without creating anything in Jira
 jira-cli release next --project PROJ --dry-run
+
+# Override the automatic date with an explicit one (never pushed to month-end)
+jira-cli release next --project PROJ --date 2026-08-20 --output version
 ```
 
 Example: if the latest valid release in Jira is `26.07.31`, `release next`
@@ -82,6 +98,11 @@ doesn't already exist, and returns it. If it already exists (e.g. a
 concurrent pipeline run created it first), the existing release is returned
 instead of creating a duplicate.
 
+If `--date YYYY-MM-DD` is supplied, it always takes priority: the CLI
+converts it directly to `YY.MM.DD` and never replaces it with the last day of
+the month. An invalid `--date` produces `ERROR: Invalid release date.` with
+exit code 6.
+
 `--output json` returns:
 
 ```json
@@ -89,6 +110,7 @@ instead of creating a duplicate.
   "project": "PROJ",
   "previous_release": "26.07.31",
   "next_release": "26.08.31",
+  "release_date": "2026-08-31",
   "release_id": "10042",
   "created": true,
   "existing": false
@@ -119,8 +141,9 @@ and Azure DevOps pipelines.
 | 3    | Authentication failure                           |
 | 4    | Authorization/permission failure                 |
 | 5    | Resource not found                               |
-| 6    | Validation failure / invalid CalVer version       |
+| 6    | Validation failure / invalid CalVer version / invalid release date |
 | 7    | Network/API failure                              |
-| 8    | File/artifact failure, or release creation failure |
+| 8    | File/artifact failure                            |
+| 9    | Release creation failure                         |
 
 CI/CD pipelines should treat any non-zero exit code as failure.

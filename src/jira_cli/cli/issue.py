@@ -18,7 +18,9 @@ from jira_cli.utils.output import (
     render_comment_added,
     render_dry_run,
     render_issue,
+    render_issue_assigned,
     render_issue_list,
+    render_issue_transitioned,
     render_issue_updated,
 )
 from jira_cli.utils.validators import validate_issue_key, validate_jql
@@ -98,3 +100,39 @@ def update_issue(
     service = get_issue_service(verbose)
     service.update_issue(issue_key, summary=summary, description=description)
     render_issue_updated(issue_key, output, quiet)
+
+
+@issue_app.command("assign")
+def assign_issue(
+    issue_key: Annotated[str, typer.Argument(callback=validate_issue_key, help="Issue key, e.g. PROJ-123.")],
+    user: Annotated[str, typer.Option("--user", help="Assignee account ID (Jira Cloud).")],
+    output: OutputOption = OutputFormat.TABLE,
+    quiet: QuietOption = False,
+    dry_run: DryRunOption = False,
+    verbose: VerboseOption = False,
+) -> None:
+    if dry_run:
+        render_dry_run("Assign Jira Issue", {"Issue": issue_key, "User": user})
+        return
+
+    service = get_issue_service(verbose)
+    service.assign_issue(issue_key, user)
+    render_issue_assigned(issue_key, user, output, quiet)
+
+
+@issue_app.command("transition")
+def transition_issue(
+    issue_key: Annotated[str, typer.Argument(callback=validate_issue_key, help="Issue key, e.g. PROJ-123.")],
+    status: Annotated[str, typer.Option("--status", help="Target workflow status, e.g. Done.")],
+    output: OutputOption = OutputFormat.TABLE,
+    quiet: QuietOption = False,
+    dry_run: DryRunOption = False,
+    verbose: VerboseOption = False,
+) -> None:
+    if dry_run:
+        render_dry_run("Transition Jira Issue", {"Issue": issue_key, "Status": status})
+        return
+
+    service = get_issue_service(verbose)
+    service.transition_issue(issue_key, status)
+    render_issue_transitioned(issue_key, status, output, quiet)

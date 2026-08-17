@@ -8,6 +8,7 @@ import typer
 
 from jira_cli.client.jira_client import JiraClient
 from jira_cli.config.settings import Settings
+from jira_cli.services.artifact_service import ArtifactService
 from jira_cli.services.issue_service import IssueService
 from jira_cli.services.project_service import ProjectService
 from jira_cli.services.release_service import ReleaseService
@@ -33,13 +34,23 @@ VerboseOption = Annotated[
 
 _logger = get_logger("cli")
 
+# Set once by the top-level `--no-verify-ssl` callback in main.py; read by every
+# service factory below so the flag applies uniformly without threading it through
+# each command's signature.
+_verify_ssl = True
+
+
+def set_verify_ssl(verify_ssl: bool) -> None:
+    global _verify_ssl
+    _verify_ssl = verify_ssl
+
 
 def _build_client(verbose: bool) -> JiraClient:
     configure_logging(verbose)
     settings = Settings.load()
     mask_secret(settings.jira_api_token)
     _logger.debug("Jira URL: %s", settings.jira_url)
-    return JiraClient(settings)
+    return JiraClient(settings, verify_ssl=_verify_ssl)
 
 
 def get_release_service(verbose: bool) -> ReleaseService:
@@ -52,3 +63,7 @@ def get_project_service(verbose: bool) -> ProjectService:
 
 def get_issue_service(verbose: bool) -> IssueService:
     return IssueService(_build_client(verbose))
+
+
+def get_artifact_service(verbose: bool) -> ArtifactService:
+    return ArtifactService(_build_client(verbose))

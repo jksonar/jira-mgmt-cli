@@ -52,15 +52,19 @@ class NextReleasePlan:
     project: str
     previous_release: str | None
     next_release: str
+    release_date: str
     release_id: str | None
     created: bool
     existing: bool
+    requested_date: str | None = None
+    """The `--date` value the caller supplied, or None if it was calculated automatically."""
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "project": self.project,
             "previous_release": self.previous_release,
             "next_release": self.next_release,
+            "release_date": self.release_date,
             "release_id": self.release_id,
             "created": self.created,
             "existing": self.existing,

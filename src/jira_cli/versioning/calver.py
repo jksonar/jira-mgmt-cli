@@ -57,8 +57,8 @@ def is_valid_calver(version: str) -> bool:
         return False
 
 
-def next_calver(version: str) -> str:
-    """Given a valid `YY.MM.DD` release, return the next month's release (last day of that month)."""
+def next_release_date(version: str) -> date:
+    """Given a valid `YY.MM.DD` release, return the last day of the following month."""
     current = parse_calver(version)
 
     if current.month == 12:
@@ -67,7 +67,12 @@ def next_calver(version: str) -> str:
         next_year, next_month = current.year, current.month + 1
 
     next_day = last_day_of_month(next_year, next_month)
-    return format_calver(date(next_year, next_month, next_day))
+    return date(next_year, next_month, next_day)
+
+
+def next_calver(version: str) -> str:
+    """Given a valid `YY.MM.DD` release, return the next month's release (last day of that month)."""
+    return format_calver(next_release_date(version))
 
 
 def latest_calver(versions: list[str]) -> str | None:

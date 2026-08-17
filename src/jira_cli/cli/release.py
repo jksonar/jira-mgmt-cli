@@ -27,6 +27,7 @@ from jira_cli.utils.output import (
 from jira_cli.utils.validators import (
     validate_date_string,
     validate_project_key,
+    validate_release_date_option,
     validate_release_name,
 )
 
@@ -58,13 +59,22 @@ def next_release(
     project: Annotated[
         str, typer.Option("--project", callback=validate_project_key, help="Project key.")
     ],
+    date: Annotated[
+        str | None,
+        typer.Option(
+            "--date",
+            callback=validate_release_date_option,
+            help="Explicit release date, YYYY-MM-DD. Overrides the automatic "
+            "last-day-of-next-month calculation.",
+        ),
+    ] = None,
     output: OutputOption = OutputFormat.TABLE,
     quiet: QuietOption = False,
     dry_run: DryRunOption = False,
     verbose: VerboseOption = False,
 ) -> None:
     service = get_release_service(verbose)
-    plan = service.plan_next_release(project, create=not dry_run)
+    plan = service.plan_next_release(project, create=not dry_run, date_override=date)
     if dry_run:
         render_next_release_dry_run(plan, output, quiet)
         return

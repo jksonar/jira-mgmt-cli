@@ -4,10 +4,12 @@ A command-line tool for automating Jira project, issue, release, and artifact
 management, built for CI/CD pipelines.
 
 > **Scope note**: this project implements project info, issue management
-> (including assign/transition), release management, patch-counter release
-> automation (next/finalize/rename-base), and artifact upload —
-> `jira-cli project ...`, `jira-cli issue ...`, `jira-cli release ...`,
-> `jira-cli artifact ...`, and `jira-cli config check`/`test`.
+> (including create/delete/assign/transition), release management,
+> patch-counter release automation (next/finalize/rename-base), the full
+> `devops-jrmt` release-lookup/move/rename toolset, artifact upload, and
+> Teams notifications — `jira-cli project ...`, `jira-cli issue ...`,
+> `jira-cli release ...`, `jira-cli artifact ...`, `jira-cli notify ...`, and
+> `jira-cli config check`/`test`/`field-configurations`.
 
 ## Install
 
@@ -211,6 +213,78 @@ create_release:
 A non-zero exit code means the release could not be determined or created —
 pipelines should treat this as a hard stop and not proceed to build/package
 with an unknown version.
+
+## Additional Release Lookup/Maintenance Commands
+
+Ported from the legacy `devops-jrmt` Node.js tool, for pipelines that still
+need direct lookups/edits beyond the `next`/`finalize`/`rename-base`
+lifecycle above:
+
+```bash
+# Find a release by a case-sensitive substring in its name; --release-index
+# picks among matches sorted by release date, newest first (default: 0)
+jira-cli release get-by-name --project PROJ --name "in Deployment" [--release-index 0]
+
+# Newest release marked released=true
+jira-cli release latest-released --project PROJ
+
+# Raw Jira field lookup for a specific version, e.g. "releaseDate", "released"
+jira-cli release get-property --project PROJ --version-id 10042 --property releaseDate
+
+# Full release objects matching a case-insensitive substring
+jira-cli release find --project PROJ --search "on DEV"
+
+# Reposition a version after another one (used internally by `release next`)
+jira-cli release move --id 10043 --after-id 10042
+
+# Strip a token from every release name containing it
+jira-cli release rename-by-token --project PROJ --search DEV [--token DEV]
+
+# Pure string utility - no Jira call
+jira-cli release clean-name --name "25.10.2 - in Deployment" --token "in Deployment"
+```
+
+`rename-by-token` and `clean-name` share the exact cleanup rules used by
+`finalize`'s `--strip-token`: the token is stripped (matching `/token`,
+`token/`, and the bare token, in that order), duplicate slashes collapse, a
+trailing slash is removed, and — only when the name has no `/` left and
+never had one — everything from the first `-` onward is truncated. If
+cleaning a matched release's name produces an empty string, the command
+aborts immediately; any releases already renamed earlier in the same call
+stay renamed.
+
+## Issue Creation and Deletion
+
+```bash
+jira-cli issue create --project PROJ --summary "Deploy release" \
+    --issue-type Task --servicefactory Platform --author <accountId> \
+    [--description "..."]
+
+jira-cli issue delete PROJ-123
+```
+
+`issue create` tags the ticket with the Service Factory cascading field
+(`customfield_10829`, specific to this Jira instance's schema) and sets the
+reporter to `--author` (a Jira Cloud account ID, not an email/username).
+
+## Notifications
+
+```bash
+jira-cli notify teams --message "Deployed 25.10.3" --webhook "$TEAMS_WEBHOOK"
+```
+
+Posts an adaptive-card text message to a Microsoft Teams incoming webhook.
+This does not talk to Jira at all — it's a plain HTTP POST to whatever URL
+`--webhook` points at.
+
+## Field Configurations
+
+```bash
+jira-cli config field-configurations
+```
+
+Lists Jira field configurations (`GET /rest/api/3/fieldconfiguration`).
+Requires Jira global admin permission.
 
 ## Project Layout
 

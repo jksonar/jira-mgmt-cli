@@ -23,14 +23,18 @@ from jira_cli.utils.output import (
     render_next_release,
     render_next_release_dry_run,
     render_release,
+    render_release_id,
     render_release_list,
+    render_release_property,
     render_rename_base,
+    render_rename_by_token_results,
 )
 from jira_cli.utils.validators import (
     validate_date_string,
     validate_project_key,
     validate_release_name,
 )
+from jira_cli.utils.version_name import clean_version_name
 
 release_app = typer.Typer(help="Manage Jira releases (project versions).")
 
@@ -130,6 +134,145 @@ def rename_base_release(
     service = get_release_service(verbose)
     plan = service.rename_base_release(project, version, create=not dry_run)
     render_rename_base(plan, output, quiet)
+
+
+@release_app.command("get-by-name")
+def get_release_by_name(
+    project: Annotated[
+        str, typer.Option("--project", callback=validate_project_key, help="Project key.")
+    ],
+    name: Annotated[
+        str, typer.Option("--name", help="Substring to match in release names (case-sensitive).")
+    ],
+    release_index: Annotated[
+        int,
+        typer.Option(
+            "--release-index",
+            help="0-based index among matches sorted by release date, newest first.",
+        ),
+    ] = 0,
+    output: OutputOption = OutputFormat.TABLE,
+    quiet: QuietOption = False,
+    verbose: VerboseOption = False,
+) -> None:
+    service = get_release_service(verbose)
+    release = service.get_release_by_name(project, name, release_index=release_index)
+    render_release_id(release, output, quiet)
+
+
+@release_app.command("latest-released")
+def latest_released_release(
+    project: Annotated[
+        str, typer.Option("--project", callback=validate_project_key, help="Project key.")
+    ],
+    output: OutputOption = OutputFormat.TABLE,
+    quiet: QuietOption = False,
+    verbose: VerboseOption = False,
+) -> None:
+    service = get_release_service(verbose)
+    release = service.get_latest_released_release(project)
+    render_release_id(release, output, quiet)
+
+
+@release_app.command("get-property")
+def get_release_property(
+    project: Annotated[
+        str, typer.Option("--project", callback=validate_project_key, help="Project key.")
+    ],
+    version_id: Annotated[str, typer.Option("--version-id", help="Release/version ID.")],
+    property_name: Annotated[
+        str,
+        typer.Option(
+            "--property", help='Raw Jira field name, e.g. "name", "releaseDate", "released".'
+        ),
+    ],
+    output: OutputOption = OutputFormat.TABLE,
+    quiet: QuietOption = False,
+    verbose: VerboseOption = False,
+) -> None:
+    service = get_release_service(verbose)
+    value = service.get_release_property(project, version_id, property_name)
+    render_release_property(property_name, value, output, quiet)
+
+
+@release_app.command("find")
+def find_releases(
+    project: Annotated[
+        str, typer.Option("--project", callback=validate_project_key, help="Project key.")
+    ],
+    search: Annotated[
+        str, typer.Option("--search", help="Substring to match in release names (case-insensitive).")
+    ],
+    output: OutputOption = OutputFormat.TABLE,
+    quiet: QuietOption = False,
+    verbose: VerboseOption = False,
+) -> None:
+    service = get_release_service(verbose)
+    releases = service.get_versions_by_name(project, search)
+    render_release_list(releases, output, quiet)
+
+
+@release_app.command("move")
+def move_release(
+    id: Annotated[str, typer.Option("--id", help="Version ID to move.")],
+    after_id: Annotated[
+        str, typer.Option("--after-id", help="Version ID to position the moved version after.")
+    ],
+    project: Annotated[
+        str | None,
+        typer.Option("--project", help="Unused; accepted for pipeline compatibility."),
+    ] = None,
+    output: OutputOption = OutputFormat.TABLE,
+    quiet: QuietOption = False,
+    dry_run: DryRunOption = False,
+    verbose: VerboseOption = False,
+) -> None:
+    if dry_run:
+        render_dry_run("Move Jira Release", {"Version": id, "After": after_id})
+        return
+
+    service = get_release_service(verbose)
+    release = service.move_release(id, after_id)
+    render_release(release, output, quiet)
+
+
+@release_app.command("rename-by-token")
+def rename_by_token(
+    project: Annotated[
+        str, typer.Option("--project", callback=validate_project_key, help="Project key.")
+    ],
+    search: Annotated[
+        str, typer.Option("--search", help="Substring to match in release names (case-insensitive).")
+    ],
+    token: Annotated[
+        str | None,
+        typer.Option(
+            "--token", help="Token to strip from matched release names (defaults to --search)."
+        ),
+    ] = None,
+    output: OutputOption = OutputFormat.TABLE,
+    quiet: QuietOption = False,
+    dry_run: DryRunOption = False,
+    verbose: VerboseOption = False,
+) -> None:
+    if dry_run:
+        render_dry_run(
+            "Rename Jira Releases By Token",
+            {"Search": search, "Token": token or search},
+        )
+        return
+
+    service = get_release_service(verbose)
+    results = service.rename_versions_by_token(project, search, token)
+    render_rename_by_token_results(results, output, quiet)
+
+
+@release_app.command("clean-name")
+def clean_name(
+    name: Annotated[str, typer.Option("--name", help="Raw release name.")],
+    token: Annotated[str, typer.Option("--token", help="Token to strip from the name.")],
+) -> None:
+    typer.echo(clean_version_name(name, token))
 
 
 @release_app.command("list")

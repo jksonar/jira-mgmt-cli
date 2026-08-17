@@ -130,3 +130,21 @@ class RenameBasePlan:
             "previous_name": self.previous_name,
             "new_name": self.new_name,
         }
+
+
+@dataclass(frozen=True)
+class RenameByTokenResult:
+    """Outcome of stripping a token from one release's name."""
+
+    id: str
+    original_name: str
+    new_name: str
+    updated: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "original_name": self.original_name,
+            "new_name": self.new_name,
+            "updated": self.updated,
+        }

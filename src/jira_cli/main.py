@@ -10,6 +10,7 @@ from jira_cli.cli.artifact import artifact_app
 from jira_cli.cli.common import set_verify_ssl
 from jira_cli.cli.config import config_app
 from jira_cli.cli.issue import issue_app
+from jira_cli.cli.notify import notify_app
 from jira_cli.cli.project import project_app
 from jira_cli.cli.release import release_app
 from jira_cli.client.exceptions import JiraCliError
@@ -21,6 +22,7 @@ app.add_typer(issue_app, name="issue")
 app.add_typer(release_app, name="release")
 app.add_typer(artifact_app, name="artifact")
 app.add_typer(config_app, name="config")
+app.add_typer(notify_app, name="notify")
 
 
 @app.callback()

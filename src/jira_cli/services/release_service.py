@@ -3,16 +3,24 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
-from jira_cli.client.exceptions import JiraCliError, ReleaseCreationError, ValidationError
+from jira_cli.client.exceptions import (
+    JiraCliError,
+    NotFoundError,
+    ReleaseCreationError,
+    ValidationError,
+)
 from jira_cli.client.jira_client import JiraClient
 from jira_cli.models.release import (
     CurrentRelease,
     FinalizeReleasePlan,
     NextReleasePlan,
     RenameBasePlan,
+    RenameByTokenResult,
     Release,
 )
+from jira_cli.utils.version_name import clean_version_name
 from jira_cli.versioning import patch
 
 _NO_VALID_RELEASE_DETAILS = "Expected format:\nMAJOR.MINOR.PATCH\n\nExample:\n25.10.3"
@@ -92,25 +100,82 @@ class ReleaseService:
     def delete_release(self, version_id: str) -> None:
         self._client.delete(f"/version/{version_id}")
 
-    def move_release(self, version_id: str, after_id: str) -> None:
+    def move_release(self, version_id: str, after_id: str) -> Release:
         """Reposition `version_id` to appear immediately after `after_id` in the project."""
         target = self.get_release(after_id)
-        self._client.post(f"/version/{version_id}/move", json={"after": target.self_url})
+        data = self._client.post(f"/version/{version_id}/move", json={"after": target.self_url})
+        return Release.from_api(data)
+
+    def get_release_by_name(
+        self, project: str, search: str, release_index: int = 0
+    ) -> Release:
+        """Return the release matching `search` (case-sensitive substring of the
+        name) at `release_index` among matches sorted by release date, newest
+        first (default index 0: the most recent match)."""
+        matches = [r for r in self.list_releases(project) if search in r.name]
+        matches.sort(key=lambda r: r.release_date or "", reverse=True)
+        if release_index >= len(matches) or release_index < 0:
+            raise NotFoundError(
+                f"No release found at index {release_index} for search '{search}' "
+                f"in project {project}."
+            )
+        return matches[release_index]
+
+    def get_latest_released_release(self, project: str) -> Release:
+        """Return the newest (by release date) release marked `released=True`."""
+        released = [r for r in self.list_releases(project) if r.released]
+        released.sort(key=lambda r: r.release_date or "", reverse=True)
+        if not released:
+            raise NotFoundError(f"No released versions found for project {project}.")
+        return released[0]
+
+    def get_release_property(self, project: str, version_id: str, property_name: str) -> Any:
+        """Return the raw Jira API field `property_name` (e.g. "releaseDate",
+        "name", "released") for the version matching `version_id`."""
+        versions = self._client.get(f"/project/{project}/versions") or []
+        matches = [v for v in versions if str(v.get("id")) == str(version_id)]
+        if not matches:
+            raise NotFoundError(f"No version found with id {version_id} in project {project}.")
+        matches.sort(key=lambda v: v.get("releaseDate") or "", reverse=True)
+        return matches[0].get(property_name)
+
+    def get_versions_by_name(self, project: str, search: str) -> list[Release]:
+        """Return all releases whose name contains `search` (case-insensitive)."""
+        search_lower = search.lower()
+        return [r for r in self.list_releases(project) if search_lower in r.name.lower()]
 
     def rename_versions_by_token(
         self, project: str, search: str, token: str | None = None
-    ) -> list[Release]:
+    ) -> list[RenameByTokenResult]:
         """Strip `token` (default: `search`) out of the name of every release in
-        `project` whose name contains `search`. Returns the releases that changed."""
-        strip_token = search if token is None else token
-        updated: list[Release] = []
-        for release in self.list_releases(project):
-            if search not in release.name:
+        `project` whose name contains `search` (case-insensitive). Returns one
+        result per match, including unchanged ones (`updated=False`).
+
+        If cleaning any matched release's name produces an empty string, this
+        raises immediately - any releases already renamed earlier in the loop
+        stay renamed (no rollback), matching the legacy tool's behavior.
+        """
+        resolved_token = search if token is None else token
+        results: list[RenameByTokenResult] = []
+        for release in self.get_versions_by_name(project, search):
+            original_name = release.name
+            cleaned = clean_version_name(original_name, resolved_token)
+            if not cleaned:
+                raise ValidationError(
+                    f"Cleaned name for version {release.id} is empty; aborting rename."
+                )
+            if cleaned == original_name:
+                results.append(
+                    RenameByTokenResult(release.id, original_name, cleaned, updated=False)
+                )
                 continue
-            new_name = " ".join(release.name.replace(strip_token, "").split()).strip(" -")
-            if new_name != release.name:
-                updated.append(self.update_release(release.id, name=new_name))
-        return updated
+            updated_release = self.update_release(release.id, name=cleaned)
+            results.append(
+                RenameByTokenResult(
+                    updated_release.id, original_name, updated_release.name, updated=True
+                )
+            )
+        return results
 
     def _candidate_version(self, release: Release) -> str | None:
         """The release's plain version: its description if that's a bare valid
@@ -293,7 +358,7 @@ class ReleaseService:
                 released=False,
             )
 
-        stripped: list[Release] = []
+        stripped: list[RenameByTokenResult] = []
         if strip_token is not None:
             stripped = self.rename_versions_by_token(project, strip_token)
 
@@ -306,7 +371,7 @@ class ReleaseService:
             release_id=release.id,
             previous_name=release.name,
             new_name=new_name,
-            stripped_release_ids=[r.id for r in stripped],
+            stripped_release_ids=[r.id for r in stripped if r.updated],
             released=True,
         )
 

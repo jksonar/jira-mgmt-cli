@@ -10,6 +10,10 @@ from jira_cli.models.issue import Issue
 
 _ISSUE_FIELDS = ["summary", "status", "issuetype", "project", "assignee"]
 
+# Cascading-select custom field used to categorize tickets by service factory,
+# specific to this Jira instance's schema.
+_SERVICE_FACTORY_FIELD = "customfield_10829"
+
 
 def _text_to_adf(text: str) -> dict[str, Any]:
     return {
@@ -69,6 +73,33 @@ class IssueService:
     def assign_issue(self, issue_key: str, user: str) -> None:
         """Assign `issue_key` to `user` (a Jira Cloud accountId)."""
         self._client.put(f"/issue/{issue_key}/assignee", json={"accountId": user})
+
+    def create_issue(
+        self,
+        project: str,
+        summary: str,
+        issue_type: str,
+        servicefactory: str,
+        author: str,
+        description: str | None = None,
+    ) -> Issue:
+        """Create a ticket tagged with the Service Factory cascading field,
+        reported by `author` (a Jira Cloud accountId)."""
+        fields: dict[str, Any] = {
+            "project": {"key": project},
+            "summary": summary,
+            "issuetype": {"name": issue_type},
+            _SERVICE_FACTORY_FIELD: {"value": "Improvements", "child": {"value": servicefactory}},
+            "reporter": {"id": author},
+        }
+        if description is not None:
+            fields["description"] = _text_to_adf(description)
+
+        data = self._client.post("/issue", json={"fields": fields})
+        return self.get_issue(data["key"])
+
+    def delete_issue(self, issue_key: str) -> None:
+        self._client.delete(f"/issue/{issue_key}")
 
     def transition_issue(self, issue_key: str, status: str) -> None:
         """Move `issue_key` through its workflow to the transition matching `status`."""

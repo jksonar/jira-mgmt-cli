@@ -10,7 +10,7 @@ from jira_cli.cli.common import OutputOption, QuietOption, VerboseOption
 from jira_cli.client.jira_client import JiraClient
 from jira_cli.config.settings import Settings
 from jira_cli.utils.logger import configure_logging, get_logger, mask_secret
-from jira_cli.utils.output import OutputFormat
+from jira_cli.utils.output import OutputFormat, print_table
 
 config_app = typer.Typer(help="Configuration and connectivity utilities.")
 
@@ -77,3 +77,34 @@ def test_connection(
     typer.echo(f"Jira URL : {settings.jira_url}")
     typer.echo(f"User     : {settings.jira_email}")
     typer.echo("Status   : Connected")
+
+
+@config_app.command("field-configurations")
+def field_configurations(
+    output: OutputOption = OutputFormat.TABLE,
+    quiet: QuietOption = False,
+    verbose: VerboseOption = False,
+) -> None:
+    """List Jira field configurations. Requires Jira global admin permission."""
+    configure_logging(verbose)
+    settings = Settings.load()
+    mask_secret(settings.jira_api_token)
+
+    with JiraClient(settings) as client:
+        data = client.get("/fieldconfiguration")
+
+    values = (data or {}).get("values", [])
+
+    if quiet:
+        for value in values:
+            typer.echo(str(value.get("id", "")))
+        return
+    if output is OutputFormat.JSON:
+        typer.echo(json.dumps(data, indent=2))
+        return
+
+    rows = [
+        [str(value.get("id", "")), value.get("name", ""), value.get("description", "")]
+        for value in values
+    ]
+    print_table(["ID", "NAME", "DESCRIPTION"], rows)

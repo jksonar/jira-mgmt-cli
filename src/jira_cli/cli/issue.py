@@ -19,13 +19,77 @@ from jira_cli.utils.output import (
     render_dry_run,
     render_issue,
     render_issue_assigned,
+    render_issue_deleted,
     render_issue_list,
     render_issue_transitioned,
     render_issue_updated,
 )
-from jira_cli.utils.validators import validate_issue_key, validate_jql
+from jira_cli.utils.validators import validate_issue_key, validate_jql, validate_project_key
 
 issue_app = typer.Typer(help="Jira issue management.")
+
+
+@issue_app.command("create")
+def create_issue(
+    project: Annotated[
+        str, typer.Option("--project", callback=validate_project_key, help="Project key.")
+    ],
+    summary: Annotated[str, typer.Option("--summary", help="Ticket summary.")],
+    issue_type: Annotated[str, typer.Option("--issue-type", help="Issue type, e.g. Task.")],
+    servicefactory: Annotated[
+        str, typer.Option("--servicefactory", help="Service Factory value.")
+    ],
+    author: Annotated[
+        str, typer.Option("--author", help="Reporter account ID (Jira Cloud).")
+    ],
+    description: Annotated[
+        str | None, typer.Option("--description", help="Ticket description.")
+    ] = None,
+    output: OutputOption = OutputFormat.TABLE,
+    quiet: QuietOption = False,
+    dry_run: DryRunOption = False,
+    verbose: VerboseOption = False,
+) -> None:
+    if dry_run:
+        fields = {
+            "Project": project,
+            "Summary": summary,
+            "Issue Type": issue_type,
+            "Service Factory": servicefactory,
+            "Author": author,
+        }
+        if description is not None:
+            fields["Description"] = description
+        render_dry_run("Create Jira Ticket", fields)
+        return
+
+    service = get_issue_service(verbose)
+    issue = service.create_issue(
+        project,
+        summary,
+        issue_type,
+        servicefactory,
+        author,
+        description=description,
+    )
+    render_issue(issue, output, quiet)
+
+
+@issue_app.command("delete")
+def delete_issue(
+    issue_key: Annotated[str, typer.Argument(callback=validate_issue_key, help="Issue key, e.g. PROJ-123.")],
+    output: OutputOption = OutputFormat.TABLE,
+    quiet: QuietOption = False,
+    dry_run: DryRunOption = False,
+    verbose: VerboseOption = False,
+) -> None:
+    if dry_run:
+        render_dry_run("Delete Jira Ticket", {"Issue": issue_key})
+        return
+
+    service = get_issue_service(verbose)
+    service.delete_issue(issue_key)
+    render_issue_deleted(issue_key, output, quiet)
 
 
 @issue_app.command("get")

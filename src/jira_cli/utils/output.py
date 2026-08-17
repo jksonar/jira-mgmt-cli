@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from enum import Enum
+from typing import Any
 
 import typer
 
@@ -16,6 +17,7 @@ from jira_cli.models.release import (
     FinalizeReleasePlan,
     NextReleasePlan,
     RenameBasePlan,
+    RenameByTokenResult,
     Release,
 )
 
@@ -202,6 +204,49 @@ def render_rename_base(plan: RenameBasePlan, fmt: OutputFormat, quiet: bool) -> 
     typer.echo(f"New Name     : {plan.new_name}")
 
 
+def render_release_id(release: Release, fmt: OutputFormat, quiet: bool) -> None:
+    if quiet or fmt is OutputFormat.VERSION:
+        typer.echo(release.id)
+        return
+
+    if fmt is OutputFormat.JSON:
+        typer.echo(json.dumps({"id": release.id, "name": release.name}, indent=2))
+        return
+
+    typer.echo(f"Release ID: {release.id}")
+    typer.echo(f"Name: {release.name}")
+
+
+def render_release_property(property_name: str, value: Any, fmt: OutputFormat, quiet: bool) -> None:
+    if quiet:
+        typer.echo("" if value is None else str(value))
+        return
+
+    if fmt is OutputFormat.JSON:
+        typer.echo(json.dumps({"property": property_name, "value": value}, indent=2))
+        return
+
+    typer.echo(f"{property_name}: {value}")
+
+
+def render_rename_by_token_results(
+    results: list[RenameByTokenResult], fmt: OutputFormat, quiet: bool
+) -> None:
+    if quiet:
+        for result in results:
+            typer.echo(result.id)
+        return
+
+    if fmt is OutputFormat.JSON:
+        typer.echo(json.dumps([r.to_dict() for r in results], indent=2))
+        return
+
+    rows = [
+        [r.id, r.original_name, r.new_name, "yes" if r.updated else "no"] for r in results
+    ]
+    print_table(["ID", "ORIGINAL NAME", "NEW NAME", "UPDATED"], rows)
+
+
 def render_deleted(version_id: str, fmt: OutputFormat, quiet: bool) -> None:
     if fmt is OutputFormat.JSON and not quiet:
         typer.echo(json.dumps({"id": version_id, "deleted": True}, indent=2))
@@ -309,6 +354,13 @@ def render_issue_transitioned(issue_key: str, status: str, fmt: OutputFormat, qu
         typer.echo(json.dumps({"issue": issue_key, "status": status}, indent=2))
         return
     typer.echo(f"Issue {issue_key} transitioned to {status}.")
+
+
+def render_issue_deleted(issue_key: str, fmt: OutputFormat, quiet: bool) -> None:
+    if fmt is OutputFormat.JSON and not quiet:
+        typer.echo(json.dumps({"issue": issue_key, "deleted": True}, indent=2))
+        return
+    typer.echo(f"Issue {issue_key} deleted." if not quiet else issue_key)
 
 
 def render_artifact_upload(

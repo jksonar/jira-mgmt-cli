@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from jira_cli.client.exceptions import ValidationError
+from jira_cli.client.exceptions import NotFoundError, ValidationError
 from jira_cli.services.release_service import ReleaseService
 
 
@@ -43,7 +43,10 @@ class FakeJiraClient:
         if path.endswith("/move"):
             version_id = path.split("/")[-2]
             self.moves.append((version_id, json))
-            return None
+            for version in self._versions:
+                if version["id"] == version_id:
+                    return version
+            raise AssertionError(f"version {version_id} not found")
 
         record = {
             "id": str(self._next_id),
@@ -256,6 +259,112 @@ def test_move_release_posts_target_self_url() -> None:
     ]
 
 
+# --- devops-jrmt parity: get_release_by_name / get_latest_released_release /
+#     get_release_property / get_versions_by_name -------------------------------
+
+
+def test_get_release_by_name_returns_most_recent_match_by_default() -> None:
+    client = FakeJiraClient(
+        [
+            make_version("1", "25.10.1 - in Deployment"),
+            make_version("2", "25.10.2 - in Deployment"),
+        ]
+    )
+    client._versions[0]["releaseDate"] = "2026-07-31"
+    client._versions[1]["releaseDate"] = "2026-08-31"
+    service = ReleaseService(client)
+
+    release = service.get_release_by_name("PROJ", "in Deployment")
+
+    assert release.id == "2"
+
+
+def test_get_release_by_name_release_index_selects_older_match() -> None:
+    client = FakeJiraClient(
+        [
+            make_version("1", "25.10.1 - in Deployment"),
+            make_version("2", "25.10.2 - in Deployment"),
+        ]
+    )
+    client._versions[0]["releaseDate"] = "2026-07-31"
+    client._versions[1]["releaseDate"] = "2026-08-31"
+    service = ReleaseService(client)
+
+    release = service.get_release_by_name("PROJ", "in Deployment", release_index=1)
+
+    assert release.id == "1"
+
+
+def test_get_release_by_name_is_case_sensitive_substring() -> None:
+    client = FakeJiraClient([make_version("1", "25.10.1 - in Deployment")])
+    service = ReleaseService(client)
+
+    with pytest.raises(NotFoundError):
+        service.get_release_by_name("PROJ", "IN DEPLOYMENT")
+
+
+def test_get_release_by_name_raises_when_no_match() -> None:
+    client = FakeJiraClient([make_version("1", "25.10.1 - Release Branch")])
+    service = ReleaseService(client)
+
+    with pytest.raises(NotFoundError):
+        service.get_release_by_name("PROJ", "in Deployment")
+
+
+def test_get_latest_released_release_filters_by_released_flag() -> None:
+    client = FakeJiraClient(
+        [
+            make_version("1", "25.10.1", released=False),
+            make_version("2", "25.10.2", released=True),
+        ]
+    )
+    client._versions[1]["releaseDate"] = "2026-08-31"
+    service = ReleaseService(client)
+
+    release = service.get_latest_released_release("PROJ")
+
+    assert release.id == "2"
+
+
+def test_get_latest_released_release_raises_when_none_released() -> None:
+    client = FakeJiraClient([make_version("1", "25.10.1", released=False)])
+    service = ReleaseService(client)
+
+    with pytest.raises(NotFoundError):
+        service.get_latest_released_release("PROJ")
+
+
+def test_get_release_property_returns_raw_field() -> None:
+    client = FakeJiraClient([make_version("1", "25.10.2 - Release Branch")])
+    client._versions[0]["releaseDate"] = "2026-08-31"
+    service = ReleaseService(client)
+
+    assert service.get_release_property("PROJ", "1", "name") == "25.10.2 - Release Branch"
+    assert service.get_release_property("PROJ", "1", "releaseDate") == "2026-08-31"
+
+
+def test_get_release_property_raises_when_version_not_found() -> None:
+    client = FakeJiraClient([make_version("1", "25.10.2 - Release Branch")])
+    service = ReleaseService(client)
+
+    with pytest.raises(NotFoundError):
+        service.get_release_property("PROJ", "999", "name")
+
+
+def test_get_versions_by_name_is_case_insensitive() -> None:
+    client = FakeJiraClient(
+        [
+            make_version("1", "25.10.1 - in Deployment"),
+            make_version("2", "25.10.2 - Release Branch"),
+        ]
+    )
+    service = ReleaseService(client)
+
+    matches = service.get_versions_by_name("PROJ", "deployment")
+
+    assert [r.id for r in matches] == ["1"]
+
+
 # --- rename_versions_by_token ----------------------------------------------------
 
 
@@ -271,7 +380,9 @@ def test_rename_versions_by_token_only_touches_matching_names() -> None:
     updated = service.rename_versions_by_token("PROJ", "DEV")
 
     assert [r.id for r in updated] == ["1"]
-    assert updated[0].name == "25.10.1 - on"
+    # clean_version_name has no "/" to preserve, so it also truncates from the
+    # first remaining "-" onward once the token itself is stripped.
+    assert updated[0].new_name == "25.10.1"
     unchanged = next(v for v in client._versions if v["id"] == "2")
     assert unchanged["name"] == "25.10.2 - Release Branch"
 

@@ -1,10 +1,11 @@
 # Jira CLI
 
-A command-line tool for automating Jira release (project version) management, built for CI/CD pipelines.
+A command-line tool for automating Jira project, issue, and release management, built for CI/CD pipelines.
 
-> **Scope note**: this project currently implements **release management only**
-> (`jira-cli release ...` and `jira-cli config check`). Project, issue, and
-> artifact commands from the full PRD are planned for later milestones.
+> **Scope note**: this project currently implements project info, issue
+> management, and release management (`jira-cli project ...`,
+> `jira-cli issue ...`, `jira-cli release ...`, and `jira-cli config check`).
+> Artifact commands from the full PRD are planned for a later milestone.
 
 ## Install
 
@@ -26,6 +27,14 @@ JIRA_API_TOKEN=your-api-token-here
 
 ```bash
 jira-cli config check
+
+jira-cli project list
+jira-cli project get PROJ
+
+jira-cli issue get PROJ-123
+jira-cli issue search --jql "project = PROJ AND status = 'In Progress'"
+jira-cli issue comment PROJ-123 --message "Deployment completed"
+jira-cli issue update PROJ-123 --summary "Updated application deployment"
 
 jira-cli release list --project PROJ
 jira-cli release get 10001

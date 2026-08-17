@@ -8,6 +8,8 @@ import typer
 
 from jira_cli.client.jira_client import JiraClient
 from jira_cli.config.settings import Settings
+from jira_cli.services.issue_service import IssueService
+from jira_cli.services.project_service import ProjectService
 from jira_cli.services.release_service import ReleaseService
 from jira_cli.utils.logger import configure_logging, get_logger, mask_secret
 from jira_cli.utils.output import OutputFormat
@@ -32,10 +34,21 @@ VerboseOption = Annotated[
 _logger = get_logger("cli")
 
 
-def get_release_service(verbose: bool) -> ReleaseService:
+def _build_client(verbose: bool) -> JiraClient:
     configure_logging(verbose)
     settings = Settings.load()
     mask_secret(settings.jira_api_token)
     _logger.debug("Jira URL: %s", settings.jira_url)
-    client = JiraClient(settings)
-    return ReleaseService(client)
+    return JiraClient(settings)
+
+
+def get_release_service(verbose: bool) -> ReleaseService:
+    return ReleaseService(_build_client(verbose))
+
+
+def get_project_service(verbose: bool) -> ProjectService:
+    return ProjectService(_build_client(verbose))
+
+
+def get_issue_service(verbose: bool) -> IssueService:
+    return IssueService(_build_client(verbose))

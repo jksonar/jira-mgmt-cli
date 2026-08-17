@@ -8,6 +8,7 @@ from datetime import date
 import typer
 
 _PROJECT_KEY_RE = re.compile(r"^[A-Z][A-Z0-9]+$")
+_ISSUE_KEY_RE = re.compile(r"^[A-Z][A-Z0-9]+-\d+$")
 
 
 def validate_project_key(value: str) -> str:
@@ -15,6 +16,20 @@ def validate_project_key(value: str) -> str:
         raise typer.BadParameter(
             "Project key must be uppercase letters/digits, e.g. PROJ."
         )
+    return value
+
+
+def validate_issue_key(value: str) -> str:
+    if not _ISSUE_KEY_RE.match(value):
+        raise typer.BadParameter(
+            "Issue key must look like PROJ-123."
+        )
+    return value
+
+
+def validate_jql(value: str) -> str:
+    if not value.strip():
+        raise typer.BadParameter("JQL query cannot be empty.")
     return value
 
 

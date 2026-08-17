@@ -8,6 +8,8 @@ from enum import Enum
 import typer
 
 from jira_cli.client.exceptions import JiraCliError
+from jira_cli.models.issue import Issue
+from jira_cli.models.project import Project
 from jira_cli.models.release import Release
 
 
@@ -40,10 +42,10 @@ def render_release_list(releases: list[Release], fmt: OutputFormat, quiet: bool)
         return
 
     rows = [
-        [r.name, r.release_date or "", "yes" if r.released else "no"]
+        [r.id, r.name, r.release_date or "", "yes" if r.released else "no"]
         for r in releases
     ]
-    print_table(["NAME", "RELEASE DATE", "RELEASED"], rows)
+    print_table(["ID", "NAME", "RELEASE DATE", "RELEASED"], rows)
 
 
 def render_release(release: Release, fmt: OutputFormat, quiet: bool) -> None:
@@ -70,6 +72,88 @@ def render_deleted(version_id: str, fmt: OutputFormat, quiet: bool) -> None:
         typer.echo(json.dumps({"id": version_id, "deleted": True}, indent=2))
         return
     typer.echo(f"Release {version_id} deleted." if not quiet else version_id)
+
+
+def render_project_list(projects: list[Project], fmt: OutputFormat, quiet: bool) -> None:
+    if quiet:
+        for project in projects:
+            typer.echo(project.key)
+        return
+
+    if fmt is OutputFormat.JSON:
+        typer.echo(json.dumps([p.to_dict() for p in projects], indent=2))
+        return
+
+    rows = [[p.key, p.name, p.project_type or ""] for p in projects]
+    print_table(["KEY", "NAME", "TYPE"], rows)
+
+
+def render_project(project: Project, fmt: OutputFormat, quiet: bool) -> None:
+    if quiet:
+        typer.echo(project.key)
+        return
+
+    if fmt is OutputFormat.JSON:
+        typer.echo(json.dumps(project.to_dict(), indent=2))
+        return
+
+    typer.echo(f"Project Key: {project.key}")
+    typer.echo(f"Name: {project.name}")
+    if project.lead:
+        typer.echo(f"Lead: {project.lead}")
+    typer.echo(f"Type: {project.project_type or ''}")
+
+
+def render_issue_list(issues: list[Issue], fmt: OutputFormat, quiet: bool) -> None:
+    if quiet:
+        for issue in issues:
+            typer.echo(issue.key)
+        return
+
+    if fmt is OutputFormat.JSON:
+        typer.echo(json.dumps([i.to_dict() for i in issues], indent=2))
+        return
+
+    rows = [
+        [i.key, i.summary, i.status or "", i.assignee or ""] for i in issues
+    ]
+    print_table(["KEY", "SUMMARY", "STATUS", "ASSIGNEE"], rows)
+
+
+def render_issue(issue: Issue, fmt: OutputFormat, quiet: bool) -> None:
+    if quiet:
+        typer.echo(issue.key)
+        return
+
+    if fmt is OutputFormat.JSON:
+        typer.echo(json.dumps(issue.to_dict(), indent=2))
+        return
+
+    typer.echo(f"Issue Key: {issue.key}")
+    typer.echo(f"Summary: {issue.summary}")
+    typer.echo(f"Status: {issue.status or ''}")
+    typer.echo(f"Type: {issue.issue_type or ''}")
+    typer.echo(f"Assignee: {issue.assignee or 'Unassigned'}")
+
+
+def render_comment_added(issue_key: str, fmt: OutputFormat, quiet: bool) -> None:
+    if quiet:
+        typer.echo(issue_key)
+        return
+    if fmt is OutputFormat.JSON:
+        typer.echo(json.dumps({"issue": issue_key, "comment_added": True}, indent=2))
+        return
+    typer.echo(f"Comment added to {issue_key}.")
+
+
+def render_issue_updated(issue_key: str, fmt: OutputFormat, quiet: bool) -> None:
+    if quiet:
+        typer.echo(issue_key)
+        return
+    if fmt is OutputFormat.JSON:
+        typer.echo(json.dumps({"issue": issue_key, "updated": True}, indent=2))
+        return
+    typer.echo(f"Issue {issue_key} updated.")
 
 
 def render_dry_run(operation: str, fields: dict[str, str]) -> None:

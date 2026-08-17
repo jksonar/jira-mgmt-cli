@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "jira-cli"
+version = "0.1.0"
+description = "Command-line tool for automating Jira release (project version) management."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.12",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+jira-cli = "jira_cli.main:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/jira_cli"]

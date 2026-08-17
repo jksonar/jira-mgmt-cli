@@ -10,12 +10,13 @@ import typer
 from jira_cli.client.exceptions import JiraCliError
 from jira_cli.models.issue import Issue
 from jira_cli.models.project import Project
-from jira_cli.models.release import Release
+from jira_cli.models.release import NextReleasePlan, Release
 
 
 class OutputFormat(str, Enum):
     TABLE = "table"
     JSON = "json"
+    VERSION = "version"
 
 
 def print_table(headers: list[str], rows: list[list[str]]) -> None:
@@ -65,6 +66,68 @@ def render_release(release: Release, fmt: OutputFormat, quiet: bool) -> None:
     typer.echo(f"Release Date: {release.release_date or ''}")
     typer.echo(f"Released: {'yes' if release.released else 'no'}")
     typer.echo(f"Archived: {'yes' if release.archived else 'no'}")
+
+
+def render_current_release(project: str, release: Release, fmt: OutputFormat, quiet: bool) -> None:
+    if quiet or fmt is OutputFormat.VERSION:
+        typer.echo(release.name)
+        return
+
+    if fmt is OutputFormat.JSON:
+        typer.echo(
+            json.dumps(
+                {"project": project, "version": release.name, "released": release.released},
+                indent=2,
+            )
+        )
+        return
+
+    typer.echo("Current Jira Release")
+    typer.echo("")
+    typer.echo(f"Project : {project}")
+    typer.echo(f"Version : {release.name}")
+    typer.echo(f"Release : {'Released' if release.released else 'Unreleased'}")
+
+
+def render_next_release(plan: NextReleasePlan, fmt: OutputFormat, quiet: bool) -> None:
+    if quiet or fmt is OutputFormat.VERSION:
+        typer.echo(plan.next_release)
+        return
+
+    if fmt is OutputFormat.JSON:
+        typer.echo(json.dumps(plan.to_dict(), indent=2))
+        return
+
+    status = "EXISTS" if plan.existing else "CREATED"
+    typer.echo("=" * 40)
+    typer.echo("JIRA NEXT RELEASE")
+    typer.echo("=" * 40)
+    typer.echo("")
+    typer.echo(f"Project          : {plan.project}")
+    typer.echo(f"Current Release  : {plan.previous_release}")
+    typer.echo(f"Next Release     : {plan.next_release}")
+    typer.echo(f"Status           : {status}")
+    if plan.release_id:
+        typer.echo(f"Release ID       : {plan.release_id}")
+    typer.echo("")
+    typer.echo("=" * 40)
+
+
+def render_next_release_dry_run(plan: NextReleasePlan, fmt: OutputFormat, quiet: bool) -> None:
+    if quiet or fmt is OutputFormat.VERSION:
+        typer.echo(plan.next_release)
+        return
+
+    if fmt is OutputFormat.JSON:
+        typer.echo(json.dumps({**plan.to_dict(), "dry_run": True}, indent=2))
+        return
+
+    typer.echo("DRY RUN")
+    typer.echo("")
+    typer.echo(f"Current Release : {plan.previous_release}")
+    typer.echo(f"Next Release    : {plan.next_release}")
+    typer.echo("")
+    typer.echo("No changes will be made to Jira.")
 
 
 def render_deleted(version_id: str, fmt: OutputFormat, quiet: bool) -> None:

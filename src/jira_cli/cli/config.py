@@ -41,3 +41,39 @@ def check(
         typer.echo(json.dumps({"connected": True, "displayName": display_name, "emailAddress": email}, indent=2))
         return
     typer.echo(f"Connected to Jira as {display_name} ({email})")
+
+
+@config_app.command("test")
+def test_connection(
+    output: OutputOption = OutputFormat.TABLE,
+    quiet: QuietOption = False,
+    verbose: VerboseOption = False,
+) -> None:
+    configure_logging(verbose)
+    settings = Settings.load()
+    mask_secret(settings.jira_api_token)
+    _logger.debug("Jira URL: %s", settings.jira_url)
+
+    with JiraClient(settings) as client:
+        client.get("/myself")
+
+    if quiet:
+        typer.echo(settings.jira_email)
+        return
+    if output is OutputFormat.JSON:
+        typer.echo(
+            json.dumps(
+                {
+                    "connected": True,
+                    "jira_url": settings.jira_url,
+                    "user": settings.jira_email,
+                },
+                indent=2,
+            )
+        )
+        return
+    typer.echo("Jira connection successful.")
+    typer.echo("")
+    typer.echo(f"Jira URL : {settings.jira_url}")
+    typer.echo(f"User     : {settings.jira_email}")
+    typer.echo("Status   : Connected")

@@ -43,3 +43,25 @@ class Release:
             "start_date": self.start_date,
             "release_date": self.release_date,
         }
+
+
+@dataclass(frozen=True)
+class NextReleasePlan:
+    """Result of calculating (and optionally creating) the next CalVer release for a project."""
+
+    project: str
+    previous_release: str | None
+    next_release: str
+    release_id: str | None
+    created: bool
+    existing: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "project": self.project,
+            "previous_release": self.previous_release,
+            "next_release": self.next_release,
+            "release_id": self.release_id,
+            "created": self.created,
+            "existing": self.existing,
+        }

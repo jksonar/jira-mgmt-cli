@@ -52,3 +52,9 @@ class ArtifactError(JiraCliError):
     """File/artifact failure. Reserved for future artifact commands."""
 
     exit_code = 8
+
+
+class ReleaseCreationError(JiraCliError):
+    """The calculated next release could not be created in Jira."""
+
+    exit_code = 8

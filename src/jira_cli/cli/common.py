@@ -16,7 +16,7 @@ from jira_cli.utils.output import OutputFormat
 
 OutputOption = Annotated[
     OutputFormat,
-    typer.Option("--output", "-o", help="Output format: table or json."),
+    typer.Option("--output", "-o", help="Output format: table, json, or version."),
 ]
 QuietOption = Annotated[
     bool,

@@ -13,10 +13,14 @@ from jira_cli.cli.common import (
     VerboseOption,
     get_release_service,
 )
+from jira_cli.client.exceptions import ValidationError
 from jira_cli.utils.output import (
     OutputFormat,
+    render_current_release,
     render_deleted,
     render_dry_run,
+    render_next_release,
+    render_next_release_dry_run,
     render_release,
     render_release_list,
 )
@@ -27,6 +31,44 @@ from jira_cli.utils.validators import (
 )
 
 release_app = typer.Typer(help="Manage Jira releases (project versions).")
+
+_NO_VALID_RELEASE_DETAILS = "Expected format:\nYY.MM.DD\n\nExample:\n26.08.31"
+
+
+@release_app.command("current")
+def current_release(
+    project: Annotated[
+        str, typer.Option("--project", callback=validate_project_key, help="Project key.")
+    ],
+    output: OutputOption = OutputFormat.TABLE,
+    quiet: QuietOption = False,
+    verbose: VerboseOption = False,
+) -> None:
+    service = get_release_service(verbose)
+    release = service.get_current_release(project)
+    if release is None:
+        raise ValidationError(
+            "No valid CalVer release found.", details=_NO_VALID_RELEASE_DETAILS
+        )
+    render_current_release(project, release, output, quiet)
+
+
+@release_app.command("next")
+def next_release(
+    project: Annotated[
+        str, typer.Option("--project", callback=validate_project_key, help="Project key.")
+    ],
+    output: OutputOption = OutputFormat.TABLE,
+    quiet: QuietOption = False,
+    dry_run: DryRunOption = False,
+    verbose: VerboseOption = False,
+) -> None:
+    service = get_release_service(verbose)
+    plan = service.plan_next_release(project, create=not dry_run)
+    if dry_run:
+        render_next_release_dry_run(plan, output, quiet)
+        return
+    render_next_release(plan, output, quiet)
 
 
 @release_app.command("list")
@@ -61,7 +103,13 @@ def create_release(
         str, typer.Option("--project", callback=validate_project_key, help="Project key.")
     ],
     name: Annotated[
-        str, typer.Option("--name", callback=validate_release_name, help="Release name.")
+        str,
+        typer.Option(
+            "--name",
+            "--version",
+            callback=validate_release_name,
+            help="Release name/version, e.g. 26.08.31.",
+        ),
     ],
     description: Annotated[
         str | None, typer.Option("--description", help="Release description.")

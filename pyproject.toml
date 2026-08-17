@@ -14,8 +14,18 @@ dependencies = [
     "python-dotenv>=1.0",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "pytest-mock>=3.14",
+]
+
 [project.scripts]
 jira-cli = "jira_cli.main:cli"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/jira_cli"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

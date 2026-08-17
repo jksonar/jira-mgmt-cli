@@ -4,8 +4,8 @@ A command-line tool for automating Jira project, issue, release, and artifact
 management, built for CI/CD pipelines.
 
 > **Scope note**: this project implements project info, issue management
-> (including assign/transition), release management, CalVer release
-> automation with optional custom release dates, and artifact upload —
+> (including assign/transition), release management, patch-counter release
+> automation (next/finalize/rename-base), and artifact upload —
 > `jira-cli project ...`, `jira-cli issue ...`, `jira-cli release ...`,
 > `jira-cli artifact ...`, and `jira-cli config check`/`test`.
 
@@ -86,52 +86,80 @@ Commands that modify data also support `--dry-run`.
 certificate verification for development-only Jira instances and prints a
 warning when used — never use it against production.
 
-## CalVer Release Automation
+## Patch Release Automation
 
-For monthly `YY.MM.DD` (CalVer) release trains — where the day is always the
-last day of the month — the CLI can read the current release and calculate/
-create the next one automatically, without a human doing the date math:
+For `MAJOR.MINOR.PATCH` release trains where only the patch segment
+increments (e.g. `25.10.2` → `25.10.3`), the CLI reads the current release
+straight from Jira, calculates/creates the next one, moves it into position,
+and tracks deployment state on the release name — no `package.json` or build
+script required.
+
+A release is identified by the plain version stored in its `description`
+(set automatically when the CLI creates it), or, if that's missing, by the
+leading `MAJOR.MINOR.PATCH` token in its name — so `25.10.2`,
+`25.10.2 - Release Branch`, `25.10.2 - in Deployment`, and
+`25.10.2 - on DEV` are all recognized as the same version `25.10.2` as it
+moves through its lifecycle.
 
 ```bash
-# Show the current (latest valid CalVer) release for a project
+# Show the current (highest-versioned) release for a project
 jira-cli release current --project PROJ
 
-# Calculate, create-if-missing, and return the next monthly release
+# Calculate, create-if-missing, move after the previous release, and rename
+# the previous release to "<version> - in Deployment"
 jira-cli release next --project PROJ
 
-# CI/CD-friendly: prints only the version, e.g. "26.08.31"
+# CI/CD-friendly: prints only the version, e.g. "25.10.3"
 jira-cli release next --project PROJ --output version
 
-# Preview without creating anything in Jira
-jira-cli release next --project PROJ --dry-run
+# Or just the branch name, e.g. "25.10.3 - Release Branch"
+jira-cli release next --project PROJ --output branch-name
 
-# Override the automatic date with an explicit one (never pushed to month-end)
-jira-cli release next --project PROJ --date 2026-08-20 --output version
+# Preview without creating/moving/renaming anything in Jira
+jira-cli release next --project PROJ --dry-run
 ```
 
-Example: if the latest valid release in Jira is `26.07.31`, `release next`
-calculates `26.08.31` (the last day of the following month), creates it if it
-doesn't already exist, and returns it. If it already exists (e.g. a
+Example: if the current release in Jira is `25.10.2`, `release next`
+calculates `25.10.3`, creates it as `25.10.3 - Release Branch`, moves it to
+sit after `25.10.2` in the project's release list, and renames `25.10.2` to
+`25.10.2 - in Deployment`. If a release for `25.10.3` already exists (e.g. a
 concurrent pipeline run created it first), the existing release is returned
-instead of creating a duplicate.
-
-If `--date YYYY-MM-DD` is supplied, it always takes priority: the CLI
-converts it directly to `YY.MM.DD` and never replaces it with the last day of
-the month. An invalid `--date` produces `ERROR: Invalid release date.` with
-exit code 6.
+instead of creating a duplicate. If no matching release exists yet at all
+(first-ever run for a project), the version is bootstrapped as `YY.MM.1`
+from today's date.
 
 `--output json` returns:
 
 ```json
 {
   "project": "PROJ",
-  "previous_release": "26.07.31",
-  "next_release": "26.08.31",
-  "release_date": "2026-08-31",
+  "previous_release": "25.10.2",
+  "previous_release_id": "10041",
+  "next_release": "25.10.3",
+  "branch_name": "25.10.3 - Release Branch",
+  "release_date": "2026-08-17",
   "release_id": "10042",
   "created": true,
-  "existing": false
+  "existing": false,
+  "moved": true,
+  "renamed_previous": true
 }
+```
+
+Once a release has been deployed, finalize it — this renames it from its
+in-progress label to an environment label and marks it released, stripping
+that environment label from any other release first so only the
+newly-finalized one carries it:
+
+```bash
+jira-cli release finalize --project PROJ --to-label "on DEV" --strip-token DEV
+```
+
+At the start of a new major.minor cycle, reset a release's name back to its
+plain version (clearing whatever label it picked up previously):
+
+```bash
+jira-cli release rename-base --project PROJ --version 25.10.1
 ```
 
 ### CI/CD Integration
@@ -155,15 +183,6 @@ stage('Create Jira Release') {
 }
 ```
 
-To pass a custom date, wire it from a build parameter and only add `--date`
-when it's populated:
-
-```groovy
-parameters {
-    string(name: 'RELEASE_DATE', defaultValue: '', description: 'Optional YYYY-MM-DD')
-}
-```
-
 #### GitLab CI
 
 ```yaml
@@ -178,15 +197,6 @@ create_release:
   artifacts:
     reports:
       dotenv: release.env
-```
-
-With a custom date (e.g. from a pipeline variable `RELEASE_DATE`):
-
-```yaml
-      export APP_VERSION=$(jira-cli release next \
-        --project "$JIRA_PROJECT" \
-        --date "$RELEASE_DATE" \
-        --output version)
 ```
 
 #### Azure DevOps

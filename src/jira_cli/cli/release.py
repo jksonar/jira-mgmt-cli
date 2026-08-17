@@ -19,21 +19,22 @@ from jira_cli.utils.output import (
     render_current_release,
     render_deleted,
     render_dry_run,
+    render_finalize_release,
     render_next_release,
     render_next_release_dry_run,
     render_release,
     render_release_list,
+    render_rename_base,
 )
 from jira_cli.utils.validators import (
     validate_date_string,
     validate_project_key,
-    validate_release_date_option,
     validate_release_name,
 )
 
 release_app = typer.Typer(help="Manage Jira releases (project versions).")
 
-_NO_VALID_RELEASE_DETAILS = "Expected format:\nYY.MM.DD\n\nExample:\n26.08.31"
+_NO_VALID_RELEASE_DETAILS = "Expected format:\nMAJOR.MINOR.PATCH\n\nExample:\n25.10.3"
 
 
 @release_app.command("current")
@@ -46,12 +47,12 @@ def current_release(
     verbose: VerboseOption = False,
 ) -> None:
     service = get_release_service(verbose)
-    release = service.get_current_release(project)
-    if release is None:
+    current = service.get_current_release(project)
+    if current is None:
         raise ValidationError(
-            "No valid CalVer release found.", details=_NO_VALID_RELEASE_DETAILS
+            "No valid release found.", details=_NO_VALID_RELEASE_DETAILS
         )
-    render_current_release(project, release, output, quiet)
+    render_current_release(project, current, output, quiet)
 
 
 @release_app.command("next")
@@ -59,13 +60,42 @@ def next_release(
     project: Annotated[
         str, typer.Option("--project", callback=validate_project_key, help="Project key.")
     ],
-    date: Annotated[
+    output: OutputOption = OutputFormat.TABLE,
+    quiet: QuietOption = False,
+    dry_run: DryRunOption = False,
+    verbose: VerboseOption = False,
+) -> None:
+    service = get_release_service(verbose)
+    plan = service.plan_next_release(project, create=not dry_run)
+    if dry_run:
+        render_next_release_dry_run(plan, output, quiet)
+        return
+    render_next_release(plan, output, quiet)
+
+
+@release_app.command("finalize")
+def finalize_release(
+    project: Annotated[
+        str, typer.Option("--project", callback=validate_project_key, help="Project key.")
+    ],
+    to_label: Annotated[
+        str,
+        typer.Option(
+            "--to-label", help='Label to apply to the release name, e.g. "on DEV".'
+        ),
+    ],
+    from_label: Annotated[
+        str,
+        typer.Option(
+            "--from-label", help="Label currently on the release being finalized."
+        ),
+    ] = "in Deployment",
+    strip_token: Annotated[
         str | None,
         typer.Option(
-            "--date",
-            callback=validate_release_date_option,
-            help="Explicit release date, YYYY-MM-DD. Overrides the automatic "
-            "last-day-of-next-month calculation.",
+            "--strip-token",
+            help="If set, strip this token from every other release name first, "
+            "so only the newly-finalized release carries it.",
         ),
     ] = None,
     output: OutputOption = OutputFormat.TABLE,
@@ -74,11 +104,32 @@ def next_release(
     verbose: VerboseOption = False,
 ) -> None:
     service = get_release_service(verbose)
-    plan = service.plan_next_release(project, create=not dry_run, date_override=date)
-    if dry_run:
-        render_next_release_dry_run(plan, output, quiet)
-        return
-    render_next_release(plan, output, quiet)
+    plan = service.finalize_release(
+        project,
+        to_label=to_label,
+        from_label=from_label,
+        strip_token=strip_token,
+        create=not dry_run,
+    )
+    render_finalize_release(plan, output, quiet)
+
+
+@release_app.command("rename-base")
+def rename_base_release(
+    project: Annotated[
+        str, typer.Option("--project", callback=validate_project_key, help="Project key.")
+    ],
+    version: Annotated[
+        str, typer.Option("--version", help="Plain version to reset the release name to.")
+    ],
+    output: OutputOption = OutputFormat.TABLE,
+    quiet: QuietOption = False,
+    dry_run: DryRunOption = False,
+    verbose: VerboseOption = False,
+) -> None:
+    service = get_release_service(verbose)
+    plan = service.rename_base_release(project, version, create=not dry_run)
+    render_rename_base(plan, output, quiet)
 
 
 @release_app.command("list")

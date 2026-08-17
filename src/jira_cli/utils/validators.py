@@ -7,8 +7,6 @@ from datetime import date
 
 import typer
 
-from jira_cli.client.exceptions import ValidationError
-
 _PROJECT_KEY_RE = re.compile(r"^[A-Z][A-Z0-9]+$")
 _ISSUE_KEY_RE = re.compile(r"^[A-Z][A-Z0-9]+-\d+$")
 
@@ -48,18 +46,4 @@ def validate_date_string(value: str | None) -> str | None:
         date.fromisoformat(value)
     except ValueError as exc:
         raise typer.BadParameter("Date must be in YYYY-MM-DD format.") from exc
-    return value
-
-
-def validate_release_date_option(value: str | None) -> str | None:
-    """Validate `release next --date`, raising the PRD-specified error banner on failure."""
-    if value is None:
-        return None
-    try:
-        date.fromisoformat(value)
-    except ValueError as exc:
-        raise ValidationError(
-            "Invalid release date.",
-            details="Expected format:\nYYYY-MM-DD\n\nExample:\n2026-08-20",
-        ) from exc
     return value

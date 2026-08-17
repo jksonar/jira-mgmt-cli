@@ -1,1 +1,1 @@
-"""CalVer (YY.MM.DD) parsing, validation, and next-release calculation."""
+"""Patch (MAJOR.MINOR.PATCH) parsing, validation, and next-release calculation."""

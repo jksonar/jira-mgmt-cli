@@ -11,13 +11,20 @@ from jira_cli.client.exceptions import JiraCliError
 from jira_cli.models.artifact import Attachment
 from jira_cli.models.issue import Issue
 from jira_cli.models.project import Project
-from jira_cli.models.release import NextReleasePlan, Release
+from jira_cli.models.release import (
+    CurrentRelease,
+    FinalizeReleasePlan,
+    NextReleasePlan,
+    RenameBasePlan,
+    Release,
+)
 
 
 class OutputFormat(str, Enum):
     TABLE = "table"
     JSON = "json"
     VERSION = "version"
+    BRANCH_NAME = "branch-name"
 
 
 def print_table(headers: list[str], rows: list[list[str]]) -> None:
@@ -69,15 +76,22 @@ def render_release(release: Release, fmt: OutputFormat, quiet: bool) -> None:
     typer.echo(f"Archived: {'yes' if release.archived else 'no'}")
 
 
-def render_current_release(project: str, release: Release, fmt: OutputFormat, quiet: bool) -> None:
+def render_current_release(
+    project: str, current: CurrentRelease, fmt: OutputFormat, quiet: bool
+) -> None:
     if quiet or fmt is OutputFormat.VERSION:
-        typer.echo(release.name)
+        typer.echo(current.version)
         return
 
     if fmt is OutputFormat.JSON:
         typer.echo(
             json.dumps(
-                {"project": project, "version": release.name, "released": release.released},
+                {
+                    "project": project,
+                    "version": current.version,
+                    "name": current.release.name,
+                    "released": current.release.released,
+                },
                 indent=2,
             )
         )
@@ -86,13 +100,18 @@ def render_current_release(project: str, release: Release, fmt: OutputFormat, qu
     typer.echo("Current Jira Release")
     typer.echo("")
     typer.echo(f"Project : {project}")
-    typer.echo(f"Version : {release.name}")
-    typer.echo(f"Release : {'Released' if release.released else 'Unreleased'}")
+    typer.echo(f"Version : {current.version}")
+    typer.echo(f"Name    : {current.release.name}")
+    typer.echo(f"Release : {'Released' if current.release.released else 'Unreleased'}")
 
 
 def render_next_release(plan: NextReleasePlan, fmt: OutputFormat, quiet: bool) -> None:
     if quiet or fmt is OutputFormat.VERSION:
         typer.echo(plan.next_release)
+        return
+
+    if fmt is OutputFormat.BRANCH_NAME:
+        typer.echo(plan.branch_name)
         return
 
     if fmt is OutputFormat.JSON:
@@ -106,12 +125,15 @@ def render_next_release(plan: NextReleasePlan, fmt: OutputFormat, quiet: bool) -
     typer.echo("")
     typer.echo(f"Project          : {plan.project}")
     typer.echo(f"Current Release  : {plan.previous_release}")
-    if plan.requested_date is not None:
-        typer.echo(f"Requested Date   : {plan.requested_date}")
     typer.echo(f"Next Release     : {plan.next_release}")
+    typer.echo(f"Branch Name      : {plan.branch_name}")
     typer.echo(f"Status           : {status}")
     if plan.release_id:
         typer.echo(f"Release ID       : {plan.release_id}")
+    if plan.moved:
+        typer.echo("Moved            : after previous release")
+    if plan.renamed_previous:
+        typer.echo(f"Renamed Previous : {plan.previous_release} - in Deployment")
     typer.echo("")
     typer.echo("=" * 40)
 
@@ -119,6 +141,10 @@ def render_next_release(plan: NextReleasePlan, fmt: OutputFormat, quiet: bool) -
 def render_next_release_dry_run(plan: NextReleasePlan, fmt: OutputFormat, quiet: bool) -> None:
     if quiet or fmt is OutputFormat.VERSION:
         typer.echo(plan.next_release)
+        return
+
+    if fmt is OutputFormat.BRANCH_NAME:
+        typer.echo(plan.branch_name)
         return
 
     if fmt is OutputFormat.JSON:
@@ -130,8 +156,50 @@ def render_next_release_dry_run(plan: NextReleasePlan, fmt: OutputFormat, quiet:
     typer.echo(f"Current Release : {plan.previous_release}")
     typer.echo(f"Release Date    : {plan.release_date}")
     typer.echo(f"Next Release    : {plan.next_release}")
+    typer.echo(f"Branch Name     : {plan.branch_name}")
     typer.echo("")
     typer.echo("No changes will be made to Jira.")
+
+
+def render_finalize_release(plan: FinalizeReleasePlan, fmt: OutputFormat, quiet: bool) -> None:
+    if quiet:
+        typer.echo(plan.release_id or "")
+        return
+
+    if fmt is OutputFormat.JSON:
+        typer.echo(json.dumps(plan.to_dict(), indent=2))
+        return
+
+    if not plan.found:
+        typer.echo(f"No release found for project {plan.project} matching that label.")
+        return
+
+    typer.echo("Finalize Jira Release")
+    typer.echo("")
+    typer.echo(f"Project      : {plan.project}")
+    typer.echo(f"Release ID   : {plan.release_id}")
+    typer.echo(f"Previous Name: {plan.previous_name}")
+    typer.echo(f"New Name     : {plan.new_name}")
+    if plan.stripped_release_ids:
+        typer.echo(f"Stripped     : {', '.join(plan.stripped_release_ids)}")
+    typer.echo(f"Released     : {'yes' if plan.released else 'no'}")
+
+
+def render_rename_base(plan: RenameBasePlan, fmt: OutputFormat, quiet: bool) -> None:
+    if quiet:
+        typer.echo(plan.release_id)
+        return
+
+    if fmt is OutputFormat.JSON:
+        typer.echo(json.dumps(plan.to_dict(), indent=2))
+        return
+
+    typer.echo("Rename Base Release")
+    typer.echo("")
+    typer.echo(f"Project      : {plan.project}")
+    typer.echo(f"Release ID   : {plan.release_id}")
+    typer.echo(f"Previous Name: {plan.previous_name}")
+    typer.echo(f"New Name     : {plan.new_name}")
 
 
 def render_deleted(version_id: str, fmt: OutputFormat, quiet: bool) -> None:

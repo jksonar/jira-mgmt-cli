@@ -31,6 +31,23 @@ JIRA_EMAIL=you@example.com
 JIRA_API_TOKEN=your-api-token-here
 ```
 
+The API token is never printed or logged. Verify connectivity with:
+
+```bash
+jira-cli config test
+```
+
+```text
+Jira connection successful.
+
+Jira URL : https://your-domain.atlassian.net
+User     : you@example.com
+Status   : Connected
+```
+
+`jira-cli config check` runs the same connectivity check and instead prints
+the display name/email Jira resolves the token to.
+
 ## Usage
 
 ```bash
@@ -117,19 +134,100 @@ exit code 6.
 }
 ```
 
-### CI/CD example (Jenkins)
+### CI/CD Integration
+
+The recommended pattern for every CI/CD system is the same: run
+`jira-cli release next --output version`, capture stdout as `APP_VERSION`,
+and stop the pipeline if the command exits non-zero.
+
+#### Jenkins
 
 ```groovy
-script {
-    env.APP_VERSION = sh(
-        script: 'jira-cli release next --project "$JIRA_PROJECT" --output version',
-        returnStdout: true
-    ).trim()
+stage('Create Jira Release') {
+    steps {
+        script {
+            env.APP_VERSION = sh(
+                script: 'jira-cli release next --project "$JIRA_PROJECT" --output version',
+                returnStdout: true
+            ).trim()
+        }
+    }
 }
 ```
 
-The same pattern (capture stdout from `--output version`) works for GitLab CI
-and Azure DevOps pipelines.
+To pass a custom date, wire it from a build parameter and only add `--date`
+when it's populated:
+
+```groovy
+parameters {
+    string(name: 'RELEASE_DATE', defaultValue: '', description: 'Optional YYYY-MM-DD')
+}
+```
+
+#### GitLab CI
+
+```yaml
+create_release:
+  stage: release
+  script:
+    - |
+      export APP_VERSION=$(jira-cli release next \
+        --project "$JIRA_PROJECT" \
+        --output version)
+      echo "APP_VERSION=$APP_VERSION" >> release.env
+  artifacts:
+    reports:
+      dotenv: release.env
+```
+
+With a custom date (e.g. from a pipeline variable `RELEASE_DATE`):
+
+```yaml
+      export APP_VERSION=$(jira-cli release next \
+        --project "$JIRA_PROJECT" \
+        --date "$RELEASE_DATE" \
+        --output version)
+```
+
+#### Azure DevOps
+
+```yaml
+- script: |
+    APP_VERSION=$(jira-cli release next --project "$(JIRA_PROJECT)" --output version)
+    echo "##vso[task.setvariable variable=APP_VERSION]$APP_VERSION"
+  displayName: Create Jira Release
+```
+
+A non-zero exit code means the release could not be determined or created —
+pipelines should treat this as a hard stop and not proceed to build/package
+with an unknown version.
+
+## Project Layout
+
+```text
+src/jira_cli/
+├── main.py           # Typer app, top-level --no-verify-ssl callback, error -> exit code mapping
+├── cli/              # One module per command group (config, project, issue, release, artifact)
+├── client/           # JiraClient (httpx wrapper), auth, exception hierarchy
+├── services/         # Business logic, one service per resource
+├── models/           # Frozen dataclasses mapping Jira API JSON <-> CLI output
+├── versioning/       # CalVer (YY.MM.DD) parsing/validation/calculation
+├── config/           # Settings loaded from environment/.env
+└── utils/            # Logging (with secret masking), output rendering, CLI validators
+```
+
+## Testing
+
+```bash
+pip install -e ".[test]"
+pytest
+```
+
+Tests mock `JiraClient`/`httpx` directly, so the suite runs without a live
+Jira instance. Coverage includes CalVer calculation (including leap years and
+year rollover), the `--date` override rules, duplicate-release detection,
+issue assign/transition, artifact validation/upload, and JiraClient's
+HTTP-status-to-exit-code mapping.
 
 ## Exit Codes
 

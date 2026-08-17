@@ -84,8 +84,8 @@ def render_project_list(projects: list[Project], fmt: OutputFormat, quiet: bool)
         typer.echo(json.dumps([p.to_dict() for p in projects], indent=2))
         return
 
-    rows = [[p.key, p.name, p.project_type or ""] for p in projects]
-    print_table(["KEY", "NAME", "TYPE"], rows)
+    rows = [[p.id or "", p.key, p.name, p.project_type or ""] for p in projects]
+    print_table(["ID", "KEY", "NAME", "TYPE"], rows)
 
 
 def render_project(project: Project, fmt: OutputFormat, quiet: bool) -> None:

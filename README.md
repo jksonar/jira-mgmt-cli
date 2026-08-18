@@ -286,6 +286,81 @@ A non-zero exit code means the release could not be determined or created —
 pipelines should treat this as a hard stop and not proceed to build/package
 with an unknown version.
 
+#### Bitbucket Pipelines
+
+This matches a nightly release-train pipeline with an automated DEV
+activation and a manual STG activation (the pattern documented in most
+"Deployment Quick Guide" runbooks): create the release branch version at
+the start, then finalize it once the new code is live.
+
+Required repository/pipeline variables: `JIRA_URL`, `JIRA_EMAIL`,
+`JIRA_API_TOKEN` (all secured — see `.env.example`), `JIRA_PROJECT`, and
+`TEAMS_WEBHOOK_RELEASES`.
+
+```yaml
+definitions:
+  steps:
+    - step: &announce-start
+        name: Announce deployment start
+        script:
+          - pip install jira-cli
+          - export APP_VERSION=$(jira-cli release current --project "$JIRA_PROJECT" --output version)
+          - jira-cli notify teams --webhook "$TEAMS_WEBHOOK_RELEASES"
+              --message "The deployment of version $APP_VERSION to STG and DEV is going to start soon!"
+
+    - step: &create-release-branch
+        name: Create Jira release branch version
+        script:
+          - pip install jira-cli
+          - export APP_VERSION=$(jira-cli release next --project "$JIRA_PROJECT" --output version)
+          - echo "APP_VERSION=$APP_VERSION" >> release.env
+        artifacts:
+          - release.env
+
+    # ... existing STG/DEV metadata import and code upload/activation steps ...
+
+    - step: &finalize-and-announce
+        name: Finalize Jira release and announce completion
+        script:
+          - pip install jira-cli
+          - source release.env
+          - jira-cli release finalize --project "$JIRA_PROJECT"
+              --to-label "on dev" --from-label "in Deployment" --strip-token dev
+          - jira-cli notify teams --webhook "$TEAMS_WEBHOOK_RELEASES"
+              --message "Version $APP_VERSION was released successfully to STG and DEV."
+
+pipelines:
+  custom:
+    Build & Deployment [AUTOMATIC]:
+      - step: *announce-start
+      - step: *create-release-branch
+      # ... build, metadata upload, code deploy/activate steps ...
+      - step: *finalize-and-announce
+
+    Set Version:
+      - step: *create-release-branch
+```
+
+`Set Version` is triggered manually for the first deployment of the month
+(or as a fallback if the automated flow got stuck) — it's the exact same
+`release next` call as the nightly pipeline, just on a different trigger.
+
+If STG is activated separately from DEV, run the same `release finalize`
+shape against STG instead, once code upload there is confirmed:
+
+```bash
+jira-cli release finalize --project "$JIRA_PROJECT" \
+    --to-label "on STG" --from-label "in Deployment" --strip-token STG
+jira-cli notify teams --webhook "$TEAMS_WEBHOOK_RELEASES" \
+    --message "Version $APP_VERSION was released successfully to STG."
+```
+
+**Not covered yet:** a semi-automated flow that deploys an epic branch to a
+sandbox instance needs a version string built from a sanitized branch name,
+the current date, and a build number (e.g. for `package.json`, with semver
+validation) — that builder doesn't exist in this CLI yet and would be a
+separate feature.
+
 ## Additional Release Lookup/Maintenance Commands
 
 Ported from the legacy `devops-jrmt` Node.js tool, for pipelines that still

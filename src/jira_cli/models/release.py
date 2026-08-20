@@ -71,6 +71,7 @@ class NextReleasePlan:
     existing: bool
     moved: bool
     renamed_previous: bool
+    system_key: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -85,6 +86,7 @@ class NextReleasePlan:
             "existing": self.existing,
             "moved": self.moved,
             "renamed_previous": self.renamed_previous,
+            "system_key": self.system_key,
         }
 
 
@@ -99,6 +101,7 @@ class FinalizeReleasePlan:
     new_name: str | None
     stripped_release_ids: list[str]
     released: bool
+    system_key: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -109,6 +112,7 @@ class FinalizeReleasePlan:
             "new_name": self.new_name,
             "stripped_release_ids": self.stripped_release_ids,
             "released": self.released,
+            "system_key": self.system_key,
         }
 
 
@@ -121,6 +125,7 @@ class RenameBasePlan:
     release_id: str
     previous_name: str
     new_name: str
+    system_key: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -129,6 +134,7 @@ class RenameBasePlan:
             "release_id": self.release_id,
             "previous_name": self.previous_name,
             "new_name": self.new_name,
+            "system_key": self.system_key,
         }
 
 

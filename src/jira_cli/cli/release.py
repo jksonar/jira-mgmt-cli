@@ -33,6 +33,7 @@ from jira_cli.utils.validators import (
     validate_date_string,
     validate_project_key,
     validate_release_name,
+    validate_system_key,
 )
 from jira_cli.utils.version_name import clean_version_name
 
@@ -40,18 +41,31 @@ release_app = typer.Typer(help="Manage Jira releases (project versions).")
 
 _NO_VALID_RELEASE_DETAILS = "Expected format:\nMAJOR.MINOR.PATCH\n\nExample:\n25.10.3"
 
+SystemKeyOption = Annotated[
+    str | None,
+    typer.Option(
+        "--system-key",
+        callback=validate_system_key,
+        help='Owning system\'s short code, e.g. "WDD" or "CRM". When set, release '
+        'names are prefixed with it and every lookup/rename only ever considers '
+        "releases already carrying that prefix - so systems sharing a Jira "
+        "project can never see or touch each other's versions.",
+    ),
+]
+
 
 @release_app.command("current")
 def current_release(
     project: Annotated[
         str, typer.Option("--project", callback=validate_project_key, help="Project key.")
     ],
+    system_key: SystemKeyOption = None,
     output: OutputOption = OutputFormat.TABLE,
     quiet: QuietOption = False,
     verbose: VerboseOption = False,
 ) -> None:
     service = get_release_service(verbose)
-    current = service.get_current_release(project)
+    current = service.get_current_release(project, system_key=system_key)
     if current is None:
         raise ValidationError(
             "No valid release found.", details=_NO_VALID_RELEASE_DETAILS
@@ -64,13 +78,14 @@ def next_release(
     project: Annotated[
         str, typer.Option("--project", callback=validate_project_key, help="Project key.")
     ],
+    system_key: SystemKeyOption = None,
     output: OutputOption = OutputFormat.TABLE,
     quiet: QuietOption = False,
     dry_run: DryRunOption = False,
     verbose: VerboseOption = False,
 ) -> None:
     service = get_release_service(verbose)
-    plan = service.plan_next_release(project, create=not dry_run)
+    plan = service.plan_next_release(project, create=not dry_run, system_key=system_key)
     if dry_run:
         render_next_release_dry_run(plan, output, quiet)
         return
@@ -102,6 +117,7 @@ def finalize_release(
             "so only the newly-finalized release carries it.",
         ),
     ] = None,
+    system_key: SystemKeyOption = None,
     output: OutputOption = OutputFormat.TABLE,
     quiet: QuietOption = False,
     dry_run: DryRunOption = False,
@@ -114,6 +130,7 @@ def finalize_release(
         from_label=from_label,
         strip_token=strip_token,
         create=not dry_run,
+        system_key=system_key,
     )
     render_finalize_release(plan, output, quiet)
 
@@ -126,13 +143,14 @@ def rename_base_release(
     version: Annotated[
         str, typer.Option("--version", help="Plain version to reset the release name to.")
     ],
+    system_key: SystemKeyOption = None,
     output: OutputOption = OutputFormat.TABLE,
     quiet: QuietOption = False,
     dry_run: DryRunOption = False,
     verbose: VerboseOption = False,
 ) -> None:
     service = get_release_service(verbose)
-    plan = service.rename_base_release(project, version, create=not dry_run)
+    plan = service.rename_base_release(project, version, create=not dry_run, system_key=system_key)
     render_rename_base(plan, output, quiet)
 
 
@@ -151,12 +169,15 @@ def get_release_by_name(
             help="0-based index among matches sorted by release date, newest first.",
         ),
     ] = 0,
+    system_key: SystemKeyOption = None,
     output: OutputOption = OutputFormat.TABLE,
     quiet: QuietOption = False,
     verbose: VerboseOption = False,
 ) -> None:
     service = get_release_service(verbose)
-    release = service.get_release_by_name(project, name, release_index=release_index)
+    release = service.get_release_by_name(
+        project, name, release_index=release_index, system_key=system_key
+    )
     render_release_id(release, output, quiet)
 
 
@@ -203,12 +224,13 @@ def find_releases(
     search: Annotated[
         str, typer.Option("--search", help="Substring to match in release names (case-insensitive).")
     ],
+    system_key: SystemKeyOption = None,
     output: OutputOption = OutputFormat.TABLE,
     quiet: QuietOption = False,
     verbose: VerboseOption = False,
 ) -> None:
     service = get_release_service(verbose)
-    releases = service.get_versions_by_name(project, search)
+    releases = service.get_versions_by_name(project, search, system_key=system_key)
     render_release_list(releases, output, quiet)
 
 
@@ -250,6 +272,7 @@ def rename_by_token(
             "--token", help="Token to strip from matched release names (defaults to --search)."
         ),
     ] = None,
+    system_key: SystemKeyOption = None,
     output: OutputOption = OutputFormat.TABLE,
     quiet: QuietOption = False,
     dry_run: DryRunOption = False,
@@ -258,12 +281,12 @@ def rename_by_token(
     if dry_run:
         render_dry_run(
             "Rename Jira Releases By Token",
-            {"Search": search, "Token": token or search},
+            {"Search": search, "Token": token or search, "System Key": system_key or ""},
         )
         return
 
     service = get_release_service(verbose)
-    results = service.rename_versions_by_token(project, search, token)
+    results = service.rename_versions_by_token(project, search, token, system_key=system_key)
     render_rename_by_token_results(results, output, quiet)
 
 

@@ -236,6 +236,30 @@ plain version (clearing whatever label it picked up previously):
 jira-cli release rename-base --project PROJ --version 25.10.1
 ```
 
+### Multi-system Jira projects
+
+When several systems (e.g. a WEB/SFCC pipeline, a CRM pipeline, an APP
+pipeline) create their own releases in the *same* Jira project, pass
+`--system-key` to `next`/`finalize`/`rename-base`/`get-by-name`/`find`/
+`rename-by-token` — a short code like `WDD`, `CRM`, `APP` (case-insensitive
+in, uppercased for the name). It does two things:
+
+- Every release name it creates or resets gets that prefix, e.g.
+  `WDD - 25.10.3 - Release Branch` instead of `25.10.3 - Release Branch`.
+- Every lookup, rename, and token-strip *only* considers releases whose name
+  already starts with `<system_key> - `. A blanket `--strip-token DEV` scoped
+  to `--system-key WDD` will never rename a `CRM - ... - on DEV` version, even
+  though it lives in the same Jira project.
+
+```bash
+jira-cli release next --project PROJ --system-key WDD
+jira-cli release finalize --project PROJ --system-key WDD \
+    --to-label "on DEV" --strip-token DEV
+```
+
+Omit `--system-key` to keep the original behavior (no prefix, project-wide
+lookups) for single-system projects.
+
 ### CI/CD Integration
 
 The recommended pattern for every CI/CD system is the same: run

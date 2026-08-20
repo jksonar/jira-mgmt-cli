@@ -126,6 +126,8 @@ def render_next_release(plan: NextReleasePlan, fmt: OutputFormat, quiet: bool) -
     typer.echo("=" * 40)
     typer.echo("")
     typer.echo(f"Project          : {plan.project}")
+    if plan.system_key:
+        typer.echo(f"System Key       : {plan.system_key}")
     typer.echo(f"Current Release  : {plan.previous_release}")
     typer.echo(f"Next Release     : {plan.next_release}")
     typer.echo(f"Branch Name      : {plan.branch_name}")
@@ -179,6 +181,8 @@ def render_finalize_release(plan: FinalizeReleasePlan, fmt: OutputFormat, quiet:
     typer.echo("Finalize Jira Release")
     typer.echo("")
     typer.echo(f"Project      : {plan.project}")
+    if plan.system_key:
+        typer.echo(f"System Key   : {plan.system_key}")
     typer.echo(f"Release ID   : {plan.release_id}")
     typer.echo(f"Previous Name: {plan.previous_name}")
     typer.echo(f"New Name     : {plan.new_name}")
@@ -199,6 +203,8 @@ def render_rename_base(plan: RenameBasePlan, fmt: OutputFormat, quiet: bool) -> 
     typer.echo("Rename Base Release")
     typer.echo("")
     typer.echo(f"Project      : {plan.project}")
+    if plan.system_key:
+        typer.echo(f"System Key   : {plan.system_key}")
     typer.echo(f"Release ID   : {plan.release_id}")
     typer.echo(f"Previous Name: {plan.previous_name}")
     typer.echo(f"New Name     : {plan.new_name}")

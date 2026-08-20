@@ -226,6 +226,89 @@ def test_plan_next_release_detects_duplicate_created_concurrently() -> None:
     assert len(client._versions) == 2  # no duplicate was created
 
 
+# --- system_key scoping ---------------------------------------------------------
+
+
+def test_plan_next_release_prefixes_branch_name_with_system_key() -> None:
+    client = FakeJiraClient([])
+    service = ReleaseService(client)
+
+    plan = service.plan_next_release("WDD", create=True, system_key="CRM")
+
+    today = date.today()
+    expected_version = f"{today.year % 100}.{today.month}.1"
+    assert plan.branch_name == f"CRM - {expected_version} - Release Branch"
+    assert plan.system_key == "CRM"
+
+
+def test_plan_next_release_ignores_other_systems_versions() -> None:
+    # A higher-numbered version already exists, but it belongs to CRM, not WEB.
+    client = FakeJiraClient(
+        [make_version("1", "CRM - 25.10.9 - Release Branch", description="25.10.9")]
+    )
+    service = ReleaseService(client)
+
+    plan = service.plan_next_release("WDD", create=True, system_key="WEB")
+
+    today = date.today()
+    expected_version = f"{today.year % 100}.{today.month}.1"
+    assert plan.previous_release is None
+    assert plan.next_release == expected_version
+    assert plan.branch_name == f"WEB - {expected_version} - Release Branch"
+    # CRM's release must be left untouched.
+    crm_release = next(v for v in client._versions if v["id"] == "1")
+    assert crm_release["name"] == "CRM - 25.10.9 - Release Branch"
+
+
+def test_rename_versions_by_token_scoped_to_system_key_ignores_other_systems() -> None:
+    client = FakeJiraClient(
+        [
+            make_version("1", "WEB - 25.10.1 - on DEV"),
+            make_version("2", "CRM - 25.10.1 - on DEV"),
+        ]
+    )
+    service = ReleaseService(client)
+
+    updated = service.rename_versions_by_token("WDD", "DEV", system_key="WEB")
+
+    assert [r.id for r in updated] == ["1"]
+    crm_release = next(v for v in client._versions if v["id"] == "2")
+    assert crm_release["name"] == "CRM - 25.10.1 - on DEV"
+
+
+def test_finalize_release_strip_token_never_touches_other_systems() -> None:
+    client = FakeJiraClient(
+        [
+            make_version("1", "WEB - 25.10.1 - on DEV", description="25.10.1"),
+            make_version("2", "CRM - 25.10.2 - on DEV", description="25.10.2"),
+            make_version("3", "WEB - 25.10.2 - in Deployment", description="25.10.2"),
+        ]
+    )
+    service = ReleaseService(client)
+
+    plan = service.finalize_release(
+        "WDD", to_label="on DEV", strip_token="DEV", system_key="WEB"
+    )
+
+    assert plan.stripped_release_ids == ["1"]
+    assert plan.new_name == "WEB - 25.10.2 - on DEV"
+    crm_release = next(v for v in client._versions if v["id"] == "2")
+    assert crm_release["name"] == "CRM - 25.10.2 - on DEV"
+
+
+def test_rename_base_release_reapplies_system_key_prefix() -> None:
+    client = FakeJiraClient(
+        [make_version("1", "WEB - 25.10.1 - on DEV", description="25.10.1")]
+    )
+    service = ReleaseService(client)
+
+    plan = service.rename_base_release("WDD", "25.10.1", system_key="WEB")
+
+    assert plan.new_name == "WEB - 25.10.1"
+    updated = next(v for v in client._versions if v["id"] == "1")
+    assert updated["name"] == "WEB - 25.10.1"
+
+
 def test_plan_next_release_dry_run_does_not_mutate() -> None:
     client = FakeJiraClient([make_version("1", "25.10.2 - Release Branch", description="25.10.2")])
     service = ReleaseService(client)

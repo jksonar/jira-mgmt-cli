@@ -106,13 +106,24 @@ class ReleaseService:
         data = self._client.post(f"/version/{version_id}/move", json={"after": target.self_url})
         return Release.from_api(data)
 
+    @staticmethod
+    def _belongs_to_system(release: Release, system_key: str | None) -> bool:
+        """Whether `release` carries the `<system_key> - ` prefix, so operations
+        scoped to one system (WEB/SFCC, CRM, APP, ...) never see - or touch -
+        another system's versions in a Jira project shared between them."""
+        return system_key is None or release.name.startswith(f"{system_key} - ")
+
     def get_release_by_name(
-        self, project: str, search: str, release_index: int = 0
+        self, project: str, search: str, release_index: int = 0, system_key: str | None = None
     ) -> Release:
         """Return the release matching `search` (case-sensitive substring of the
         name) at `release_index` among matches sorted by release date, newest
         first (default index 0: the most recent match)."""
-        matches = [r for r in self.list_releases(project) if search in r.name]
+        matches = [
+            r
+            for r in self.list_releases(project)
+            if search in r.name and self._belongs_to_system(r, system_key)
+        ]
         matches.sort(key=lambda r: r.release_date or "", reverse=True)
         if release_index >= len(matches) or release_index < 0:
             raise NotFoundError(
@@ -139,17 +150,38 @@ class ReleaseService:
         matches.sort(key=lambda v: v.get("releaseDate") or "", reverse=True)
         return matches[0].get(property_name)
 
-    def get_versions_by_name(self, project: str, search: str) -> list[Release]:
-        """Return all releases whose name contains `search` (case-insensitive)."""
+    def get_versions_by_name(
+        self, project: str, search: str, system_key: str | None = None
+    ) -> list[Release]:
+        """Return all releases whose name contains `search` (case-insensitive).
+
+        When `system_key` is given, only releases carrying that system's
+        `<system_key> - ` name prefix are returned - releases from other
+        systems sharing the same Jira project are excluded even if their
+        name happens to also contain `search`.
+        """
         search_lower = search.lower()
-        return [r for r in self.list_releases(project) if search_lower in r.name.lower()]
+        return [
+            r
+            for r in self.list_releases(project)
+            if search_lower in r.name.lower() and self._belongs_to_system(r, system_key)
+        ]
 
     def rename_versions_by_token(
-        self, project: str, search: str, token: str | None = None
+        self,
+        project: str,
+        search: str,
+        token: str | None = None,
+        system_key: str | None = None,
     ) -> list[RenameByTokenResult]:
         """Strip `token` (default: `search`) out of the name of every release in
         `project` whose name contains `search` (case-insensitive). Returns one
         result per match, including unchanged ones (`updated=False`).
+
+        When `system_key` is given, this only ever touches releases carrying
+        that system's `<system_key> - ` prefix, so a blanket token like "DEV"
+        can never rename another system's (CRM/APP/DATA/...) versions just
+        because they happen to share the Jira project.
 
         If cleaning any matched release's name produces an empty string, this
         raises immediately - any releases already renamed earlier in the loop
@@ -157,7 +189,7 @@ class ReleaseService:
         """
         resolved_token = search if token is None else token
         results: list[RenameByTokenResult] = []
-        for release in self.get_versions_by_name(project, search):
+        for release in self.get_versions_by_name(project, search, system_key=system_key):
             original_name = release.name
             cleaned = clean_version_name(original_name, resolved_token)
             if not cleaned:
@@ -184,11 +216,15 @@ class ReleaseService:
             return release.description.strip()
         return patch.extract_version_prefix(release.name)
 
-    def _find_current_patch_release(self, project: str) -> tuple[Release, str] | None:
+    def _find_current_patch_release(
+        self, project: str, system_key: str | None = None
+    ) -> tuple[Release, str] | None:
         """Non-archived release with the highest (major, minor, patch) candidate version."""
         candidates: list[tuple[Release, str]] = []
         for release in self.list_releases(project):
             if release.archived:
+                continue
+            if not self._belongs_to_system(release, system_key):
                 continue
             version = self._candidate_version(release)
             if version is not None:
@@ -197,20 +233,28 @@ class ReleaseService:
             return None
         return max(candidates, key=lambda pair: patch.parse_patch_version(pair[1]))
 
-    def _find_release_by_version(self, project: str, version: str) -> Release | None:
+    def _find_release_by_version(
+        self, project: str, version: str, system_key: str | None = None
+    ) -> Release | None:
         """First non-archived release whose candidate version equals `version`."""
         for release in self.list_releases(project):
             if release.archived:
+                continue
+            if not self._belongs_to_system(release, system_key):
                 continue
             if self._candidate_version(release) == version:
                 return release
         return None
 
-    def _find_release_by_label(self, project: str, label: str) -> Release | None:
+    def _find_release_by_label(
+        self, project: str, label: str, system_key: str | None = None
+    ) -> Release | None:
         """Among non-archived releases whose name contains `label`, the one with
         the highest candidate version (deterministic if more than one matches)."""
         matches: list[Release] = [
-            r for r in self.list_releases(project) if not r.archived and label in r.name
+            r
+            for r in self.list_releases(project)
+            if not r.archived and label in r.name and self._belongs_to_system(r, system_key)
         ]
         if not matches:
             return None
@@ -221,15 +265,19 @@ class ReleaseService:
 
         return max(matches, key=sort_key)
 
-    def get_current_release(self, project: str) -> CurrentRelease | None:
+    def get_current_release(
+        self, project: str, system_key: str | None = None
+    ) -> CurrentRelease | None:
         """Return the current release and its parsed plain version, or None."""
-        found = self._find_current_patch_release(project)
+        found = self._find_current_patch_release(project, system_key)
         if found is None:
             return None
         release, version = found
         return CurrentRelease(release=release, version=version)
 
-    def plan_next_release(self, project: str, create: bool) -> NextReleasePlan:
+    def plan_next_release(
+        self, project: str, create: bool, system_key: str | None = None
+    ) -> NextReleasePlan:
         """Calculate the next patch release from the project's current one.
 
         If no current release is found, bootstraps `YY.MM.1` from today's date.
@@ -237,12 +285,17 @@ class ReleaseService:
         in Jira, moved after the previous release, and the previous release is
         renamed to "<version> - in Deployment".
 
+        `system_key` (e.g. "WDD", "CRM") both prefixes the release name and
+        scopes every lookup to releases already carrying that prefix, so this
+        never picks up or collides with another system's versions in a Jira
+        project shared between them.
+
         The existence check re-queries Jira separately (rather than reusing the
         initial fetch) so a release created by a concurrent pipeline run in the
         meantime is still detected before we attempt to create a duplicate.
         """
         today = date.today()
-        current = self._find_current_patch_release(project)
+        current = self._find_current_patch_release(project, system_key)
 
         if current is None:
             previous_release, previous_version = None, None
@@ -251,11 +304,15 @@ class ReleaseService:
             previous_release, previous_version = current
             next_version = patch.next_patch_version(previous_version)
 
-        branch_name = f"{next_version} - Release Branch"
+        branch_name = (
+            f"{system_key} - {next_version} - Release Branch"
+            if system_key
+            else f"{next_version} - Release Branch"
+        )
         release_date_iso = today.isoformat()
         previous_release_id = previous_release.id if previous_release else None
 
-        existing = self._find_release_by_version(project, next_version)
+        existing = self._find_release_by_version(project, next_version, system_key)
         if existing is not None:
             return NextReleasePlan(
                 project=project,
@@ -269,6 +326,7 @@ class ReleaseService:
                 existing=True,
                 moved=False,
                 renamed_previous=False,
+                system_key=system_key,
             )
 
         if not create:
@@ -284,6 +342,7 @@ class ReleaseService:
                 existing=False,
                 moved=False,
                 renamed_previous=False,
+                system_key=system_key,
             )
 
         try:
@@ -319,6 +378,7 @@ class ReleaseService:
             existing=False,
             moved=moved,
             renamed_previous=renamed_previous,
+            system_key=system_key,
         )
 
     def finalize_release(
@@ -328,12 +388,18 @@ class ReleaseService:
         from_label: str = "in Deployment",
         strip_token: str | None = None,
         create: bool = True,
+        system_key: str | None = None,
     ) -> FinalizeReleasePlan:
         """Rename the release currently carrying `from_label` to carry `to_label`
         instead, and mark it released. If `strip_token` is given, it is first
         stripped from any other release name that still carries it, so only the
-        newly-finalized release keeps that label."""
-        release = self._find_release_by_label(project, from_label)
+        newly-finalized release keeps that label.
+
+        `system_key`, when given, scopes both the release lookup and the
+        `strip_token` sweep to releases carrying that system's name prefix,
+        so a blanket token like "DEV" never reaches another system's versions.
+        """
+        release = self._find_release_by_label(project, from_label, system_key)
         if release is None:
             return FinalizeReleasePlan(
                 project=project,
@@ -343,6 +409,7 @@ class ReleaseService:
                 new_name=None,
                 stripped_release_ids=[],
                 released=False,
+                system_key=system_key,
             )
 
         new_name = release.name.replace(from_label, to_label, 1)
@@ -356,11 +423,12 @@ class ReleaseService:
                 new_name=new_name,
                 stripped_release_ids=[],
                 released=False,
+                system_key=system_key,
             )
 
         stripped: list[RenameByTokenResult] = []
         if strip_token is not None:
-            stripped = self.rename_versions_by_token(project, strip_token)
+            stripped = self.rename_versions_by_token(project, strip_token, system_key=system_key)
 
         self.update_release(release.id, name=new_name)
         self.update_release(release.id, released=True)
@@ -373,15 +441,22 @@ class ReleaseService:
             new_name=new_name,
             stripped_release_ids=[r.id for r in stripped if r.updated],
             released=True,
+            system_key=system_key,
         )
 
-    def rename_base_release(self, project: str, version: str, create: bool = True) -> RenameBasePlan:
-        """Reset the release matching `version` back to its plain, unsuffixed name."""
-        release = self._find_release_by_version(project, version)
+    def rename_base_release(
+        self, project: str, version: str, create: bool = True, system_key: str | None = None
+    ) -> RenameBasePlan:
+        """Reset the release matching `version` back to its plain, unsuffixed name
+        (or to "<system_key> - <version>" when `system_key` is given, so the
+        name keeps identifying which system the release belongs to)."""
+        release = self._find_release_by_version(project, version, system_key)
         if release is None:
             raise ValidationError(
                 f"No release found matching version {version}.", details=_NO_VALID_RELEASE_DETAILS
             )
+
+        new_name = f"{system_key} - {version}" if system_key else version
 
         if not create:
             return RenameBasePlan(
@@ -389,15 +464,17 @@ class ReleaseService:
                 version=version,
                 release_id=release.id,
                 previous_name=release.name,
-                new_name=version,
+                new_name=new_name,
+                system_key=system_key,
             )
 
-        self.update_release(release.id, name=version)
+        self.update_release(release.id, name=new_name)
 
         return RenameBasePlan(
             project=project,
             version=version,
             release_id=release.id,
             previous_name=release.name,
-            new_name=version,
+            new_name=new_name,
+            system_key=system_key,
         )

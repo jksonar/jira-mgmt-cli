@@ -394,7 +394,8 @@ def update_release(
         typer.Option("--release-date", callback=validate_date_string, help="YYYY-MM-DD."),
     ] = None,
     released: Annotated[
-        bool | None, typer.Option("--released", help="Set released status.")
+        bool | None,
+        typer.Option("--released/--no-released", help="Set released status."),
     ] = None,
     output: OutputOption = OutputFormat.TABLE,
     quiet: QuietOption = False,

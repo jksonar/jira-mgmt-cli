@@ -111,6 +111,7 @@ jira-cli release create --project PROJ --version v1.3.0 \
   --start-date 2026-08-20 --release-date 2026-09-01 --description "Q3 release"
 jira-cli release update 10001 --release-date 2026-09-10
 jira-cli release update 10001 --released
+jira-cli release update 10001 --no-released
 jira-cli release publish 10001
 jira-cli release archive 10001
 jira-cli release delete 10001

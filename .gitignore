@@ -5,6 +5,8 @@ __pycache__/
 dist/
 build/
 .env
+.env.company
+.env.personal
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/

@@ -6,15 +6,11 @@ import json
 
 import typer
 
-from jira_cli.cli.common import OutputOption, QuietOption, VerboseOption
-from jira_cli.client.jira_client import JiraClient
+from jira_cli.cli.common import OutputOption, QuietOption, VerboseOption, build_client
 from jira_cli.config.settings import Settings
-from jira_cli.utils.logger import configure_logging, get_logger, mask_secret
 from jira_cli.utils.output import OutputFormat, print_table
 
 config_app = typer.Typer(help="Configuration and connectivity utilities.")
-
-_logger = get_logger("cli")
 
 
 @config_app.command("check")
@@ -23,12 +19,9 @@ def check(
     quiet: QuietOption = False,
     verbose: VerboseOption = False,
 ) -> None:
-    configure_logging(verbose)
     settings = Settings.load()
-    mask_secret(settings.jira_api_token)
-    _logger.debug("Jira URL: %s", settings.jira_url)
 
-    with JiraClient(settings) as client:
+    with build_client(verbose) as client:
         me = client.get("/myself")
 
     display_name = me.get("displayName", "")
@@ -49,12 +42,9 @@ def test_connection(
     quiet: QuietOption = False,
     verbose: VerboseOption = False,
 ) -> None:
-    configure_logging(verbose)
     settings = Settings.load()
-    mask_secret(settings.jira_api_token)
-    _logger.debug("Jira URL: %s", settings.jira_url)
 
-    with JiraClient(settings) as client:
+    with build_client(verbose) as client:
         client.get("/myself")
 
     if quiet:
@@ -86,11 +76,7 @@ def field_configurations(
     verbose: VerboseOption = False,
 ) -> None:
     """List Jira field configurations. Requires Jira global admin permission."""
-    configure_logging(verbose)
-    settings = Settings.load()
-    mask_secret(settings.jira_api_token)
-
-    with JiraClient(settings) as client:
+    with build_client(verbose) as client:
         data = client.get("/fieldconfiguration")
 
     values = (data or {}).get("values", [])

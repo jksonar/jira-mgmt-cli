@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from enum import Enum
-from typing import Any
+from typing import Any, Callable
 
 import typer
 
@@ -42,40 +42,90 @@ def print_table(headers: list[str], rows: list[list[str]]) -> None:
         typer.echo("  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)))
 
 
-def render_release_list(releases: list[Release], fmt: OutputFormat, quiet: bool) -> None:
+def render(
+    fmt: OutputFormat,
+    quiet: bool,
+    *,
+    quiet_fn: Callable[[], None],
+    json_fn: Callable[[], Any],
+    text_fn: Callable[[], None],
+) -> None:
+    """Shared quiet -> JSON -> text three-way branch used by most renderers below."""
     if quiet:
-        for release in releases:
-            typer.echo(release.id)
+        quiet_fn()
         return
-
     if fmt is OutputFormat.JSON:
-        typer.echo(json.dumps([r.to_dict() for r in releases], indent=2))
+        typer.echo(json.dumps(json_fn(), indent=2))
         return
+    text_fn()
 
-    rows = [
-        [r.id, r.name, r.release_date or "", "yes" if r.released else "no"]
-        for r in releases
-    ]
-    print_table(["ID", "NAME", "RELEASE DATE", "RELEASED"], rows)
+
+def render_list(
+    items: list[Any],
+    fmt: OutputFormat,
+    quiet: bool,
+    *,
+    quiet_key: Callable[[Any], str],
+    headers: list[str],
+    row: Callable[[Any], list[str]],
+) -> None:
+    """Shared renderer for a list of model objects (quiet id/key, JSON to_dict list, table)."""
+    render(
+        fmt,
+        quiet,
+        quiet_fn=lambda: [typer.echo(quiet_key(item)) for item in items],
+        json_fn=lambda: [item.to_dict() for item in items],
+        text_fn=lambda: print_table(headers, [row(item) for item in items]),
+    )
+
+
+def render_action(
+    quiet_value: str,
+    fmt: OutputFormat,
+    quiet: bool,
+    *,
+    json_fields: dict[str, Any],
+    message: str,
+) -> None:
+    """Shared renderer for simple action confirmations (quiet key, JSON blob, or a message)."""
+    render(
+        fmt,
+        quiet,
+        quiet_fn=lambda: typer.echo(quiet_value),
+        json_fn=lambda: json_fields,
+        text_fn=lambda: typer.echo(message),
+    )
+
+
+def render_release_list(releases: list[Release], fmt: OutputFormat, quiet: bool) -> None:
+    render_list(
+        releases,
+        fmt,
+        quiet,
+        quiet_key=lambda r: r.id,
+        headers=["ID", "NAME", "RELEASE DATE", "RELEASED"],
+        row=lambda r: [r.id, r.name, r.release_date or "", "yes" if r.released else "no"],
+    )
 
 
 def render_release(release: Release, fmt: OutputFormat, quiet: bool) -> None:
-    if quiet:
-        typer.echo(release.id)
-        return
+    def _text() -> None:
+        typer.echo(f"Release ID: {release.id}")
+        typer.echo(f"Name: {release.name}")
+        if release.description:
+            typer.echo(f"Description: {release.description}")
+        typer.echo(f"Start Date: {release.start_date or ''}")
+        typer.echo(f"Release Date: {release.release_date or ''}")
+        typer.echo(f"Released: {'yes' if release.released else 'no'}")
+        typer.echo(f"Archived: {'yes' if release.archived else 'no'}")
 
-    if fmt is OutputFormat.JSON:
-        typer.echo(json.dumps(release.to_dict(), indent=2))
-        return
-
-    typer.echo(f"Release ID: {release.id}")
-    typer.echo(f"Name: {release.name}")
-    if release.description:
-        typer.echo(f"Description: {release.description}")
-    typer.echo(f"Start Date: {release.start_date or ''}")
-    typer.echo(f"Release Date: {release.release_date or ''}")
-    typer.echo(f"Released: {'yes' if release.released else 'no'}")
-    typer.echo(f"Archived: {'yes' if release.archived else 'no'}")
+    render(
+        fmt,
+        quiet,
+        quiet_fn=lambda: typer.echo(release.id),
+        json_fn=release.to_dict,
+        text_fn=_text,
+    )
 
 
 def render_current_release(
@@ -166,48 +216,50 @@ def render_next_release_dry_run(plan: NextReleasePlan, fmt: OutputFormat, quiet:
 
 
 def render_finalize_release(plan: FinalizeReleasePlan, fmt: OutputFormat, quiet: bool) -> None:
-    if quiet:
-        typer.echo(plan.release_id or "")
-        return
+    def _text() -> None:
+        if not plan.found:
+            typer.echo(f"No release found for project {plan.project} matching that label.")
+            return
 
-    if fmt is OutputFormat.JSON:
-        typer.echo(json.dumps(plan.to_dict(), indent=2))
-        return
+        typer.echo("Finalize Jira Release")
+        typer.echo("")
+        typer.echo(f"Project      : {plan.project}")
+        if plan.system_key:
+            typer.echo(f"System Key   : {plan.system_key}")
+        typer.echo(f"Release ID   : {plan.release_id}")
+        typer.echo(f"Previous Name: {plan.previous_name}")
+        typer.echo(f"New Name     : {plan.new_name}")
+        if plan.stripped_release_ids:
+            typer.echo(f"Stripped     : {', '.join(plan.stripped_release_ids)}")
+        typer.echo(f"Released     : {'yes' if plan.released else 'no'}")
 
-    if not plan.found:
-        typer.echo(f"No release found for project {plan.project} matching that label.")
-        return
-
-    typer.echo("Finalize Jira Release")
-    typer.echo("")
-    typer.echo(f"Project      : {plan.project}")
-    if plan.system_key:
-        typer.echo(f"System Key   : {plan.system_key}")
-    typer.echo(f"Release ID   : {plan.release_id}")
-    typer.echo(f"Previous Name: {plan.previous_name}")
-    typer.echo(f"New Name     : {plan.new_name}")
-    if plan.stripped_release_ids:
-        typer.echo(f"Stripped     : {', '.join(plan.stripped_release_ids)}")
-    typer.echo(f"Released     : {'yes' if plan.released else 'no'}")
+    render(
+        fmt,
+        quiet,
+        quiet_fn=lambda: typer.echo(plan.release_id or ""),
+        json_fn=plan.to_dict,
+        text_fn=_text,
+    )
 
 
 def render_rename_base(plan: RenameBasePlan, fmt: OutputFormat, quiet: bool) -> None:
-    if quiet:
-        typer.echo(plan.release_id)
-        return
+    def _text() -> None:
+        typer.echo("Rename Base Release")
+        typer.echo("")
+        typer.echo(f"Project      : {plan.project}")
+        if plan.system_key:
+            typer.echo(f"System Key   : {plan.system_key}")
+        typer.echo(f"Release ID   : {plan.release_id}")
+        typer.echo(f"Previous Name: {plan.previous_name}")
+        typer.echo(f"New Name     : {plan.new_name}")
 
-    if fmt is OutputFormat.JSON:
-        typer.echo(json.dumps(plan.to_dict(), indent=2))
-        return
-
-    typer.echo("Rename Base Release")
-    typer.echo("")
-    typer.echo(f"Project      : {plan.project}")
-    if plan.system_key:
-        typer.echo(f"System Key   : {plan.system_key}")
-    typer.echo(f"Release ID   : {plan.release_id}")
-    typer.echo(f"Previous Name: {plan.previous_name}")
-    typer.echo(f"New Name     : {plan.new_name}")
+    render(
+        fmt,
+        quiet,
+        quiet_fn=lambda: typer.echo(plan.release_id),
+        json_fn=plan.to_dict,
+        text_fn=_text,
+    )
 
 
 def render_release_id(release: Release, fmt: OutputFormat, quiet: bool) -> None:
@@ -224,193 +276,186 @@ def render_release_id(release: Release, fmt: OutputFormat, quiet: bool) -> None:
 
 
 def render_release_property(property_name: str, value: Any, fmt: OutputFormat, quiet: bool) -> None:
-    if quiet:
-        typer.echo("" if value is None else str(value))
-        return
-
-    if fmt is OutputFormat.JSON:
-        typer.echo(json.dumps({"property": property_name, "value": value}, indent=2))
-        return
-
-    typer.echo(f"{property_name}: {value}")
+    render(
+        fmt,
+        quiet,
+        quiet_fn=lambda: typer.echo("" if value is None else str(value)),
+        json_fn=lambda: {"property": property_name, "value": value},
+        text_fn=lambda: typer.echo(f"{property_name}: {value}"),
+    )
 
 
 def render_rename_by_token_results(
     results: list[RenameByTokenResult], fmt: OutputFormat, quiet: bool
 ) -> None:
-    if quiet:
-        for result in results:
-            typer.echo(result.id)
-        return
-
-    if fmt is OutputFormat.JSON:
-        typer.echo(json.dumps([r.to_dict() for r in results], indent=2))
-        return
-
-    rows = [
-        [r.id, r.original_name, r.new_name, "yes" if r.updated else "no"] for r in results
-    ]
-    print_table(["ID", "ORIGINAL NAME", "NEW NAME", "UPDATED"], rows)
+    render_list(
+        results,
+        fmt,
+        quiet,
+        quiet_key=lambda r: r.id,
+        headers=["ID", "ORIGINAL NAME", "NEW NAME", "UPDATED"],
+        row=lambda r: [r.id, r.original_name, r.new_name, "yes" if r.updated else "no"],
+    )
 
 
 def render_deleted(version_id: str, fmt: OutputFormat, quiet: bool) -> None:
-    if fmt is OutputFormat.JSON and not quiet:
-        typer.echo(json.dumps({"id": version_id, "deleted": True}, indent=2))
-        return
-    typer.echo(f"Release {version_id} deleted." if not quiet else version_id)
+    render_action(
+        version_id,
+        fmt,
+        quiet,
+        json_fields={"id": version_id, "deleted": True},
+        message=f"Release {version_id} deleted.",
+    )
 
 
 def render_project_list(projects: list[Project], fmt: OutputFormat, quiet: bool) -> None:
-    if quiet:
-        for project in projects:
-            typer.echo(project.key)
-        return
-
-    if fmt is OutputFormat.JSON:
-        typer.echo(json.dumps([p.to_dict() for p in projects], indent=2))
-        return
-
-    rows = [[p.id or "", p.key, p.name, p.project_type or ""] for p in projects]
-    print_table(["ID", "KEY", "NAME", "TYPE"], rows)
+    render_list(
+        projects,
+        fmt,
+        quiet,
+        quiet_key=lambda p: p.key,
+        headers=["ID", "KEY", "NAME", "TYPE"],
+        row=lambda p: [p.id or "", p.key, p.name, p.project_type or ""],
+    )
 
 
 def render_project(project: Project, fmt: OutputFormat, quiet: bool) -> None:
-    if quiet:
-        typer.echo(project.key)
-        return
+    def _text() -> None:
+        typer.echo(f"Project Key: {project.key}")
+        typer.echo(f"Name: {project.name}")
+        if project.lead:
+            typer.echo(f"Lead: {project.lead}")
+        typer.echo(f"Type: {project.project_type or ''}")
 
-    if fmt is OutputFormat.JSON:
-        typer.echo(json.dumps(project.to_dict(), indent=2))
-        return
-
-    typer.echo(f"Project Key: {project.key}")
-    typer.echo(f"Name: {project.name}")
-    if project.lead:
-        typer.echo(f"Lead: {project.lead}")
-    typer.echo(f"Type: {project.project_type or ''}")
+    render(
+        fmt,
+        quiet,
+        quiet_fn=lambda: typer.echo(project.key),
+        json_fn=project.to_dict,
+        text_fn=_text,
+    )
 
 
 def render_issue_list(issues: list[Issue], fmt: OutputFormat, quiet: bool) -> None:
-    if quiet:
-        for issue in issues:
-            typer.echo(issue.key)
-        return
-
-    if fmt is OutputFormat.JSON:
-        typer.echo(json.dumps([i.to_dict() for i in issues], indent=2))
-        return
-
-    rows = [
-        [i.key, i.summary, i.status or "", i.assignee or ""] for i in issues
-    ]
-    print_table(["KEY", "SUMMARY", "STATUS", "ASSIGNEE"], rows)
+    render_list(
+        issues,
+        fmt,
+        quiet,
+        quiet_key=lambda i: i.key,
+        headers=["KEY", "SUMMARY", "STATUS", "ASSIGNEE"],
+        row=lambda i: [i.key, i.summary, i.status or "", i.assignee or ""],
+    )
 
 
 def render_issue(issue: Issue, fmt: OutputFormat, quiet: bool) -> None:
-    if quiet:
-        typer.echo(issue.key)
-        return
+    def _text() -> None:
+        typer.echo(f"Issue Key: {issue.key}")
+        typer.echo(f"Summary: {issue.summary}")
+        typer.echo(f"Status: {issue.status or ''}")
+        typer.echo(f"Type: {issue.issue_type or ''}")
+        typer.echo(f"Assignee: {issue.assignee or 'Unassigned'}")
 
-    if fmt is OutputFormat.JSON:
-        typer.echo(json.dumps(issue.to_dict(), indent=2))
-        return
-
-    typer.echo(f"Issue Key: {issue.key}")
-    typer.echo(f"Summary: {issue.summary}")
-    typer.echo(f"Status: {issue.status or ''}")
-    typer.echo(f"Type: {issue.issue_type or ''}")
-    typer.echo(f"Assignee: {issue.assignee or 'Unassigned'}")
+    render(
+        fmt,
+        quiet,
+        quiet_fn=lambda: typer.echo(issue.key),
+        json_fn=issue.to_dict,
+        text_fn=_text,
+    )
 
 
 def render_comment_added(issue_key: str, fmt: OutputFormat, quiet: bool) -> None:
-    if quiet:
-        typer.echo(issue_key)
-        return
-    if fmt is OutputFormat.JSON:
-        typer.echo(json.dumps({"issue": issue_key, "comment_added": True}, indent=2))
-        return
-    typer.echo(f"Comment added to {issue_key}.")
+    render_action(
+        issue_key,
+        fmt,
+        quiet,
+        json_fields={"issue": issue_key, "comment_added": True},
+        message=f"Comment added to {issue_key}.",
+    )
 
 
 def render_issue_updated(issue_key: str, fmt: OutputFormat, quiet: bool) -> None:
-    if quiet:
-        typer.echo(issue_key)
-        return
-    if fmt is OutputFormat.JSON:
-        typer.echo(json.dumps({"issue": issue_key, "updated": True}, indent=2))
-        return
-    typer.echo(f"Issue {issue_key} updated.")
+    render_action(
+        issue_key,
+        fmt,
+        quiet,
+        json_fields={"issue": issue_key, "updated": True},
+        message=f"Issue {issue_key} updated.",
+    )
 
 
 def render_issue_assigned(issue_key: str, user: str, fmt: OutputFormat, quiet: bool) -> None:
-    if quiet:
-        typer.echo(issue_key)
-        return
-    if fmt is OutputFormat.JSON:
-        typer.echo(json.dumps({"issue": issue_key, "assignee": user}, indent=2))
-        return
-    typer.echo(f"Issue {issue_key} assigned to {user}.")
+    render_action(
+        issue_key,
+        fmt,
+        quiet,
+        json_fields={"issue": issue_key, "assignee": user},
+        message=f"Issue {issue_key} assigned to {user}.",
+    )
 
 
 def render_issue_transitioned(issue_key: str, status: str, fmt: OutputFormat, quiet: bool) -> None:
-    if quiet:
-        typer.echo(issue_key)
-        return
-    if fmt is OutputFormat.JSON:
-        typer.echo(json.dumps({"issue": issue_key, "status": status}, indent=2))
-        return
-    typer.echo(f"Issue {issue_key} transitioned to {status}.")
+    render_action(
+        issue_key,
+        fmt,
+        quiet,
+        json_fields={"issue": issue_key, "status": status},
+        message=f"Issue {issue_key} transitioned to {status}.",
+    )
 
 
 def render_issue_deleted(issue_key: str, fmt: OutputFormat, quiet: bool) -> None:
-    if fmt is OutputFormat.JSON and not quiet:
-        typer.echo(json.dumps({"issue": issue_key, "deleted": True}, indent=2))
-        return
-    typer.echo(f"Issue {issue_key} deleted." if not quiet else issue_key)
+    render_action(
+        issue_key,
+        fmt,
+        quiet,
+        json_fields={"issue": issue_key, "deleted": True},
+        message=f"Issue {issue_key} deleted.",
+    )
 
 
 def render_artifact_upload(
     issue_key: str, attachments: list[Attachment], fmt: OutputFormat, quiet: bool
 ) -> None:
-    if quiet:
+    def _quiet() -> None:
         for attachment in attachments:
             typer.echo(attachment.id)
-        return
 
-    if fmt is OutputFormat.JSON:
-        typer.echo(
-            json.dumps(
-                {"issue": issue_key, "attachments": [a.to_dict() for a in attachments]},
-                indent=2,
-            )
-        )
-        return
-
-    typer.echo("Artifact uploaded successfully.")
-    typer.echo("")
-    for attachment in attachments:
-        typer.echo(f"Name: {attachment.filename}")
-        typer.echo(f"Attachment ID: {attachment.id}")
-        typer.echo(f"Size: {attachment.size} bytes")
+    def _text() -> None:
+        typer.echo("Artifact uploaded successfully.")
         typer.echo("")
+        for attachment in attachments:
+            typer.echo(f"Name: {attachment.filename}")
+            typer.echo(f"Attachment ID: {attachment.id}")
+            typer.echo(f"Size: {attachment.size} bytes")
+            typer.echo("")
+
+    render(
+        fmt,
+        quiet,
+        quiet_fn=_quiet,
+        json_fn=lambda: {"issue": issue_key, "attachments": [a.to_dict() for a in attachments]},
+        text_fn=_text,
+    )
 
 
 def render_attachment_metadata(attachment: Attachment, fmt: OutputFormat, quiet: bool) -> None:
-    if quiet:
-        typer.echo(attachment.id)
-        return
+    def _text() -> None:
+        typer.echo(f"Attachment ID: {attachment.id}")
+        typer.echo(f"Name: {attachment.filename}")
+        typer.echo(f"Size: {attachment.size} bytes")
+        if attachment.mime_type:
+            typer.echo(f"MIME Type: {attachment.mime_type}")
+        if attachment.created:
+            typer.echo(f"Created: {attachment.created}")
 
-    if fmt is OutputFormat.JSON:
-        typer.echo(json.dumps(attachment.to_dict(), indent=2))
-        return
-
-    typer.echo(f"Attachment ID: {attachment.id}")
-    typer.echo(f"Name: {attachment.filename}")
-    typer.echo(f"Size: {attachment.size} bytes")
-    if attachment.mime_type:
-        typer.echo(f"MIME Type: {attachment.mime_type}")
-    if attachment.created:
-        typer.echo(f"Created: {attachment.created}")
+    render(
+        fmt,
+        quiet,
+        quiet_fn=lambda: typer.echo(attachment.id),
+        json_fn=attachment.to_dict,
+        text_fn=_text,
+    )
 
 
 def render_dry_run(operation: str, fields: dict[str, str]) -> None:

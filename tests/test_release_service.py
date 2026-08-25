@@ -505,6 +505,25 @@ def test_finalize_release_strips_token_from_other_releases_first() -> None:
     assert finalized["name"] == "25.10.2 - on DEV"
 
 
+def test_finalize_release_strip_token_excludes_release_being_finalized() -> None:
+    """A strip_token that also matches the release's own from_label (e.g.
+    stripping "Deployment" while finalizing a release still named "in
+    Deployment") must not sweep up the release being finalized itself -
+    otherwise it gets stripped and then immediately overwritten back by the
+    finalize rename, leaving it wrongly listed as stripped."""
+    client = FakeJiraClient([make_version("1", "26.8.6 - in Deployment", description="26.8.6")])
+    service = ReleaseService(client)
+
+    plan = service.finalize_release(
+        "RT", to_label="in Deployment", strip_token="Deployment"
+    )
+
+    assert plan.stripped_release_ids == []
+    updated = next(v for v in client._versions if v["id"] == "1")
+    assert updated["name"] == "26.8.6 - in Deployment"
+    assert updated["released"] is True
+
+
 def test_finalize_release_returns_not_found_when_no_label_match() -> None:
     client = FakeJiraClient([make_version("1", "25.10.2 - Release Branch")])
     service = ReleaseService(client)

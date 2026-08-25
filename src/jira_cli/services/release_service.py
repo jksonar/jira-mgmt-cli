@@ -173,6 +173,7 @@ class ReleaseService:
         search: str,
         token: str | None = None,
         system_key: str | None = None,
+        exclude_release_id: str | None = None,
     ) -> list[RenameByTokenResult]:
         """Strip `token` (default: `search`) out of the name of every release in
         `project` whose name contains `search` (case-insensitive). Returns one
@@ -183,6 +184,10 @@ class ReleaseService:
         can never rename another system's (CRM/APP/DATA/...) versions just
         because they happen to share the Jira project.
 
+        `exclude_release_id`, when given, skips that release entirely even if
+        its name matches `search` - used by `finalize_release` so the release
+        being finalized is never swept up by its own strip_token.
+
         If cleaning any matched release's name produces an empty string, this
         raises immediately - any releases already renamed earlier in the loop
         stay renamed (no rollback), matching the legacy tool's behavior.
@@ -190,6 +195,8 @@ class ReleaseService:
         resolved_token = search if token is None else token
         results: list[RenameByTokenResult] = []
         for release in self.get_versions_by_name(project, search, system_key=system_key):
+            if exclude_release_id is not None and release.id == exclude_release_id:
+                continue
             original_name = release.name
             cleaned = clean_version_name(original_name, resolved_token)
             if not cleaned:
@@ -428,7 +435,9 @@ class ReleaseService:
 
         stripped: list[RenameByTokenResult] = []
         if strip_token is not None:
-            stripped = self.rename_versions_by_token(project, strip_token, system_key=system_key)
+            stripped = self.rename_versions_by_token(
+                project, strip_token, system_key=system_key, exclude_release_id=release.id
+            )
 
         self.update_release(release.id, name=new_name)
         self.update_release(release.id, released=True)

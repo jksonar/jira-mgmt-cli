@@ -186,12 +186,13 @@ def latest_released_release(
     project: Annotated[
         str, typer.Option("--project", callback=validate_project_key, help="Project key.")
     ],
+    system_key: SystemKeyOption = None,
     output: OutputOption = OutputFormat.TABLE,
     quiet: QuietOption = False,
     verbose: VerboseOption = False,
 ) -> None:
     service = get_release_service(verbose)
-    release = service.get_latest_released_release(project)
+    release = service.get_latest_released_release(project, system_key=system_key)
     render_release_id(release, output, quiet)
 
 
@@ -294,8 +295,9 @@ def rename_by_token(
 def clean_name(
     name: Annotated[str, typer.Option("--name", help="Raw release name.")],
     token: Annotated[str, typer.Option("--token", help="Token to strip from the name.")],
+    system_key: SystemKeyOption = None,
 ) -> None:
-    typer.echo(clean_version_name(name, token))
+    typer.echo(clean_version_name(name, token, system_key=system_key))
 
 
 @release_app.command("list")

@@ -289,6 +289,35 @@ def test_rename_versions_by_token_scoped_to_system_key_ignores_other_systems() -
     assert crm_release["name"] == "CRM - 25.10.1 - on DEV"
 
 
+def test_rename_versions_by_token_keeps_version_with_system_key_prefix() -> None:
+    client = FakeJiraClient([make_version("1", "CRM - 25.10.3 - on DEV")])
+    service = ReleaseService(client)
+
+    updated = service.rename_versions_by_token("WDD", "DEV", system_key="CRM")
+
+    assert len(updated) == 1
+    release = next(v for v in client._versions if v["id"] == "1")
+    assert release["name"] == "CRM - 25.10.3"
+
+
+def test_finalize_release_strip_token_keeps_version_with_system_key_prefix() -> None:
+    client = FakeJiraClient(
+        [
+            make_version("1", "CRM - 25.10.1 - in Deployment", description="25.10.1"),
+            make_version("2", "CRM - 25.10.4 - on DEV", description="25.10.4"),
+        ]
+    )
+    service = ReleaseService(client)
+
+    plan = service.finalize_release(
+        "WDD", to_label="on DEV", strip_token="DEV", system_key="CRM"
+    )
+
+    assert plan.new_name == "CRM - 25.10.1 - on DEV"
+    stripped = next(v for v in client._versions if v["id"] == "2")
+    assert stripped["name"] == "CRM - 25.10.4"
+
+
 def test_finalize_release_strip_token_never_touches_other_systems() -> None:
     client = FakeJiraClient(
         [
@@ -428,6 +457,23 @@ def test_get_latest_released_release_raises_when_none_released() -> None:
 
     with pytest.raises(NotFoundError):
         service.get_latest_released_release("PROJ")
+
+
+def test_get_latest_released_release_scoped_to_system_key() -> None:
+    client = FakeJiraClient(
+        [
+            make_version("1", "25.10.1", released=True),
+            make_version("2", "CRM - 25.10.9", released=True),
+        ]
+    )
+    # Base release has the later date, but must be excluded when scoped to CRM.
+    client._versions[0]["releaseDate"] = "2026-08-31"
+    client._versions[1]["releaseDate"] = "2026-08-01"
+    service = ReleaseService(client)
+
+    release = service.get_latest_released_release("PROJ", system_key="CRM")
+
+    assert release.id == "2"
 
 
 def test_get_release_property_returns_raw_field() -> None:

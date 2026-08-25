@@ -147,7 +147,7 @@ Most commands accept:
 | Flag | Effect |
 |------|--------|
 | `--output/-o table\|json\|version\|branch-name` | Render as a human-readable table (default), raw JSON, just the version string, or just the branch name (the last two are primarily meaningful for `release next`/`release current`). |
-| `--quiet/-q` | Print only the resulting ID — handy for scripting. |
+| `--quiet/-q` | Print only the resulting ID — handy for scripting. (`config check`/`config test` are the one exception: `--quiet` prints the resolved email address instead, since there's no ID involved.) |
 | `--verbose/-v` | Enable debug-level logging. |
 | `--dry-run` | Preview the change without calling Jira — only on commands that modify data. |
 
@@ -179,6 +179,10 @@ moves through its lifecycle.
 ```bash
 # Show the current (highest-versioned) release for a project
 jira-cli release current --project PROJ
+
+# Same, scoped to one system's releases in a shared project (see
+# "Multi-system Jira projects" below)
+jira-cli release current --project PROJ --system-key WDD
 
 # Calculate, create-if-missing, move after the previous release, and rename
 # the previous release to "<version> - in Deployment"
@@ -241,9 +245,10 @@ jira-cli release rename-base --project PROJ --version 25.10.1
 
 When several systems (e.g. a WEB/SFCC pipeline, a CRM pipeline, an APP
 pipeline) create their own releases in the *same* Jira project, pass
-`--system-key` to `next`/`finalize`/`rename-base`/`get-by-name`/`find`/
-`rename-by-token` — a short code like `WDD`, `CRM`, `APP` (case-insensitive
-in, uppercased for the name). It does two things:
+`--system-key` to `current`/`next`/`finalize`/`rename-base`/`get-by-name`/
+`latest-released`/`find`/`rename-by-token`/`clean-name` — a short code like
+`WDD`, `CRM`, `APP` (case-insensitive in, uppercased for the name). It does
+two things:
 
 - Every release name it creates or resets gets that prefix, e.g.
   `WDD - 25.10.3 - Release Branch` instead of `25.10.3 - Release Branch`.
@@ -400,13 +405,17 @@ jira-cli release get-by-name --project PROJ --name "in Deployment" [--release-in
 # Newest release marked released=true
 jira-cli release latest-released --project PROJ
 
+# Same, scoped to one system's releases in a shared project
+jira-cli release latest-released --project PROJ --system-key WDD
+
 # Raw Jira field lookup for a specific version, e.g. "releaseDate", "released"
 jira-cli release get-property --project PROJ --version-id 10042 --property releaseDate
 
 # Full release objects matching a case-insensitive substring
 jira-cli release find --project PROJ --search "on DEV"
 
-# Reposition a version after another one (used internally by `release next`)
+# Reposition a version after another one (used internally by `release next`).
+# --project is accepted but unused, kept only for pipeline-script compatibility.
 jira-cli release move --id 10043 --after-id 10042
 
 # Strip a token from every release name containing it
@@ -414,6 +423,11 @@ jira-cli release rename-by-token --project PROJ --search DEV [--token DEV]
 
 # Pure string utility - no Jira call
 jira-cli release clean-name --name "25.10.2 - in Deployment" --token "in Deployment"
+
+# --system-key sets the system prefix aside before cleaning and reattaches it
+# after, so a prefixed name's version doesn't get truncated away along with
+# the token
+jira-cli release clean-name --name "WDD - 25.10.2 - in Deployment" --token "in Deployment" --system-key WDD
 ```
 
 `rename-by-token` and `clean-name` share the exact cleanup rules used by
@@ -439,10 +453,21 @@ jira-cli issue delete PROJ-123
 (`customfield_10829`, specific to this Jira instance's schema) and sets the
 reporter to `--author` (a Jira Cloud account ID, not an email/username).
 
+**Known limitation**: `customfield_10829` and its `"Improvements"` parent
+value are hardcoded — `issue create` will fail with a `400`/validation error
+("Field 'customfield_10829' cannot be set. It is not on the appropriate
+screen, or unknown.") on any Jira site whose schema doesn't happen to define
+that exact custom field with that exact cascading option, since custom field
+IDs are workspace-specific. Confirmed against a fresh Jira Cloud test site.
+There is currently no flag to skip or reconfigure this field.
+
 ## Notifications
 
 ```bash
 jira-cli notify teams --message "Deployed 25.10.3" --webhook "$TEAMS_WEBHOOK"
+
+# -m/-wh are short-flag aliases for --message/--webhook
+jira-cli notify teams -m "Deployed 25.10.3" -wh "$TEAMS_WEBHOOK"
 ```
 
 Posts an adaptive-card text message to a Microsoft Teams incoming webhook.

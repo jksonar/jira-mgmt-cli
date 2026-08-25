@@ -45,7 +45,7 @@ def set_verify_ssl(verify_ssl: bool) -> None:
     _verify_ssl = verify_ssl
 
 
-def _build_client(verbose: bool) -> JiraClient:
+def build_client(verbose: bool) -> JiraClient:
     configure_logging(verbose)
     settings = Settings.load()
     mask_secret(settings.jira_api_token)
@@ -54,16 +54,16 @@ def _build_client(verbose: bool) -> JiraClient:
 
 
 def get_release_service(verbose: bool) -> ReleaseService:
-    return ReleaseService(_build_client(verbose))
+    return ReleaseService(build_client(verbose))
 
 
 def get_project_service(verbose: bool) -> ProjectService:
-    return ProjectService(_build_client(verbose))
+    return ProjectService(build_client(verbose))
 
 
 def get_issue_service(verbose: bool) -> IssueService:
-    return IssueService(_build_client(verbose))
+    return IssueService(build_client(verbose))
 
 
 def get_artifact_service(verbose: bool) -> ArtifactService:
-    return ArtifactService(_build_client(verbose))
+    return ArtifactService(build_client(verbose))

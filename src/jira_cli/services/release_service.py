@@ -132,9 +132,20 @@ class ReleaseService:
             )
         return matches[release_index]
 
-    def get_latest_released_release(self, project: str) -> Release:
-        """Return the newest (by release date) release marked `released=True`."""
-        released = [r for r in self.list_releases(project) if r.released]
+    def get_latest_released_release(
+        self, project: str, system_key: str | None = None
+    ) -> Release:
+        """Return the newest (by release date) release marked `released=True`.
+
+        When `system_key` is given, only releases carrying that system's
+        `<system_key> - ` prefix are considered, matching every other lookup
+        in this service.
+        """
+        released = [
+            r
+            for r in self.list_releases(project)
+            if r.released and self._belongs_to_system(r, system_key)
+        ]
         released.sort(key=lambda r: r.release_date or "", reverse=True)
         if not released:
             raise NotFoundError(f"No released versions found for project {project}.")
@@ -198,7 +209,7 @@ class ReleaseService:
             if exclude_release_id is not None and release.id == exclude_release_id:
                 continue
             original_name = release.name
-            cleaned = clean_version_name(original_name, resolved_token)
+            cleaned = clean_version_name(original_name, resolved_token, system_key=system_key)
             if not cleaned:
                 raise ValidationError(
                     f"Cleaned name for version {release.id} is empty; aborting rename."
@@ -370,7 +381,12 @@ class ReleaseService:
         if previous_release is not None:
             self.move_release(created_release.id, previous_release.id)
             moved = True
-            self.update_release(previous_release.id, name=f"{previous_version} - in Deployment")
+            previous_new_name = (
+                f"{system_key} - {previous_version} - in Deployment"
+                if system_key
+                else f"{previous_version} - in Deployment"
+            )
+            self.update_release(previous_release.id, name=previous_new_name)
             renamed_previous = True
 
         return NextReleasePlan(

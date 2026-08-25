@@ -187,7 +187,12 @@ def render_next_release(plan: NextReleasePlan, fmt: OutputFormat, quiet: bool) -
     if plan.moved:
         typer.echo("Moved            : after previous release")
     if plan.renamed_previous:
-        typer.echo(f"Renamed Previous : {plan.previous_release} - in Deployment")
+        previous_new_name = (
+            f"{plan.system_key} - {plan.previous_release} - in Deployment"
+            if plan.system_key
+            else f"{plan.previous_release} - in Deployment"
+        )
+        typer.echo(f"Renamed Previous : {previous_new_name}")
     typer.echo("")
     typer.echo("=" * 40)
 

@@ -49,3 +49,23 @@ def test_empty_token_raises() -> None:
 def test_non_string_name_raises() -> None:
     with pytest.raises(TypeError):
         clean_version_name(None, "DEV")  # type: ignore[arg-type]
+
+
+def test_system_key_prefix_is_preserved_across_strip() -> None:
+    assert (
+        clean_version_name("WEB - 25.10.2 - on DEV", "DEV", system_key="WEB")
+        == "WEB - 25.10.2"
+    )
+
+
+def test_system_key_prefix_preserved_with_no_token() -> None:
+    assert (
+        clean_version_name("CRM - 25.10.2 - Release Branch", system_key="CRM")
+        == "CRM - 25.10.2"
+    )
+
+
+def test_mismatched_system_key_prefix_is_not_stripped() -> None:
+    # Name doesn't carry the given system_key's prefix, so it's cleaned as-is
+    # (and still hits the legacy first-dash truncation).
+    assert clean_version_name("CRM - 25.10.2 - on DEV", "DEV", system_key="WEB") == "CRM"

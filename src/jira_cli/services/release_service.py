@@ -370,7 +370,12 @@ class ReleaseService:
         if previous_release is not None:
             self.move_release(created_release.id, previous_release.id)
             moved = True
-            self.update_release(previous_release.id, name=f"{previous_version} - in Deployment")
+            previous_new_name = (
+                f"{system_key} - {previous_version} - in Deployment"
+                if system_key
+                else f"{previous_version} - in Deployment"
+            )
+            self.update_release(previous_release.id, name=previous_new_name)
             renamed_previous = True
 
         return NextReleasePlan(

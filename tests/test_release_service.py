@@ -260,6 +260,19 @@ def test_plan_next_release_ignores_other_systems_versions() -> None:
     assert crm_release["name"] == "CRM - 25.10.9 - Release Branch"
 
 
+def test_plan_next_release_renames_previous_keeps_system_key_prefix() -> None:
+    client = FakeJiraClient(
+        [make_version("1", "WEB - 25.10.1 - Release Branch", description="25.10.1")]
+    )
+    service = ReleaseService(client)
+
+    plan = service.plan_next_release("WDD", create=True, system_key="WEB")
+
+    assert plan.renamed_previous is True
+    previous = next(v for v in client._versions if v["id"] == "1")
+    assert previous["name"] == "WEB - 25.10.1 - in Deployment"
+
+
 def test_rename_versions_by_token_scoped_to_system_key_ignores_other_systems() -> None:
     client = FakeJiraClient(
         [
